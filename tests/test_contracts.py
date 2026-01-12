@@ -56,7 +56,7 @@ class TestInputSchemaContracts:
         subdomain = Subdomain(
             name="ORDER-Service",
             type=SubdomainType.CORE,
-            description="Test",
+            description="This is a valid test description",
             bounded_context="Test",
             responsibilities=["Test"]
         )
