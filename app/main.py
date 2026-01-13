@@ -1,5 +1,5 @@
 """
-FastAPI Server - REST API for Specification Generation
+FastAPI Server - VERSIONE CORRETTA con timeout HTTP
 """
 
 import logging
@@ -9,7 +9,6 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.core.llm_config import llm_engine
 from app.models.input_schema import ArchitectureInput
 from app.models.output_schema import FunctionalSpecificationOutput
 from app.modules.generator_module import SpecificationOrchestrator
@@ -26,18 +25,27 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
     # Startup
-    logger.info("Initializing Agent 3 - Functional Specification Generator")
+    logger.info("🚀 Initializing Agent 3 - Functional Specification Generator")
+    logger.info(f"📍 Ollama URL: {settings.ollama_base_url}")
+    logger.info(f"🤖 Model: {settings.ollama_model}")
+    
+    # Test Ollama connection
     try:
-        llm_engine.initialize()
-        logger.info(f"LLM Engine initialized: {llm_engine.provider}")
+        import httpx
+        with httpx.Client(timeout=10) as client:
+            response = client.get(f"{settings.ollama_base_url}/api/tags")
+            if response.status_code == 200:
+                logger.info("✅ Ollama connection successful")
+            else:
+                logger.warning(f"⚠️  Ollama responded with status {response.status_code}")
     except Exception as e:
-        logger.error(f"Failed to initialize LLM: {e}")
-        raise
+        logger.error(f"❌ Ollama connection failed: {e}")
+        logger.warning("⚠️  Service will start but generation may fail")
 
     yield
 
     # Shutdown
-    logger.info("Shutting down Agent 3")
+    logger.info("👋 Shutting down Agent 3")
 
 
 # Initialize FastAPI
@@ -68,26 +76,29 @@ async def root():
         "service": settings.service_name,
         "version": settings.service_version,
         "status": "operational",
-        "llm_provider": llm_engine.provider,
+        "ollama_url": settings.ollama_base_url,
+        "ollama_model": settings.ollama_model,
     }
 
 
 @app.get("/health", tags=["Health"])
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint con verifica Ollama"""
     try:
-        # Verify LLM is accessible
-        engine = llm_engine.get_engine()
-        return {
-            "status": "healthy",
-            "llm_status": "connected" if engine else "disconnected",
-            "service": settings.service_name,
-        }
+        import httpx
+        with httpx.Client(timeout=5) as client:
+            response = client.get(f"{settings.ollama_base_url}/api/tags")
+            ollama_status = "connected" if response.status_code == 200 else "error"
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Service unhealthy"
-        )
+        logger.error(f"Ollama health check failed: {e}")
+        ollama_status = "disconnected"
+    
+    return {
+        "status": "healthy",
+        "ollama_status": ollama_status,
+        "service": settings.service_name,
+        "version": settings.service_version,
+    }
 
 
 @app.post(
@@ -99,6 +110,9 @@ async def health_check():
 async def generate_specifications(architecture: ArchitectureInput):
     """
     Generate functional specifications from architecture.
+    
+    TIMEOUT: Max 5 minutes per subdomain
+    FALLBACK: Always returns valid specs even if LLM fails
 
     Args:
         architecture: Validated architecture input from Agent 2
@@ -107,8 +121,8 @@ async def generate_specifications(architecture: ArchitectureInput):
         Complete functional specification for all microservices
     """
     try:
-        logger.info(f"Generating specs for project: {architecture.project_name}")
-        logger.info(f"Processing {len(architecture.subdomains)} subdomains")
+        logger.info(f"📦 Generating specs for project: {architecture.project_name}")
+        logger.info(f"🔧 Processing {len(architecture.subdomains)} subdomains")
 
         # Generate specifications
         result = orchestrator.generate_all_specs(architecture)
@@ -116,16 +130,17 @@ async def generate_specifications(architecture: ArchitectureInput):
         # Validate output schema
         output = FunctionalSpecificationOutput(**result)
 
-        logger.info(f"Successfully generated {len(output.microservices)} microservice specs")
+        logger.info(f"✅ Successfully generated {len(output.microservices)} microservice specs")
         return output
 
     except ValueError as e:
-        logger.error(f"Validation error: {e}")
+        logger.error(f"❌ Validation error: {e}")
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Invalid input: {str(e)}"
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, 
+            detail=f"Invalid input: {str(e)}"
         )
     except Exception as e:
-        logger.error(f"Generation failed: {e}", exc_info=True)
+        logger.error(f"❌ Generation failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal server error: {str(e)}",
@@ -153,5 +168,5 @@ if __name__ == "__main__":
         port=settings.api_port,
         reload=settings.api_reload,
         log_level=settings.api_log_level,
-        timeout_keep_alive=300,
+        timeout_keep_alive=600,  # 10 minuti
     )
