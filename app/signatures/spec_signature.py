@@ -1,37 +1,28 @@
 """
 DSPy Signatures - Declarative Prompt Definitions
 """
+
 import dspy
 
 
 class GenerateMicroserviceSpec(dspy.Signature):
     """
     Generate detailed functional specification for a microservice.
-    
+
     This signature defines the contract between input (subdomain architecture)
     and output (detailed functional specification).
     """
-    
+
     # Input Fields
-    subdomain_name: str = dspy.InputField(
-        desc="Name of the subdomain/microservice"
-    )
-    subdomain_description: str = dspy.InputField(
-        desc="High-level description of the subdomain"
-    )
-    responsibilities: str = dspy.InputField(
-        desc="List of responsibilities (comma-separated)"
-    )
-    dependencies: str = dspy.InputField(
-        desc="Dependent services (comma-separated)"
-    )
+    subdomain_name: str = dspy.InputField(desc="Name of the subdomain/microservice")
+    subdomain_description: str = dspy.InputField(desc="High-level description of the subdomain")
+    responsibilities: str = dspy.InputField(desc="List of responsibilities (comma-separated)")
+    dependencies: str = dspy.InputField(desc="Dependent services (comma-separated)")
     communication_patterns: str = dspy.InputField(
         desc="Communication patterns (REST, Events, Queue)"
     )
-    technical_constraints: str = dspy.InputField(
-        desc="Technical stack and constraints"
-    )
-    
+    technical_constraints: str = dspy.InputField(desc="Technical stack and constraints")
+
     # Output Fields
     functional_requirements: str = dspy.OutputField(
         desc="Detailed functional requirements in structured JSON format with id, type, priority, title, description, acceptance_criteria"
@@ -60,17 +51,11 @@ class ValidateSpecificationQuality(dspy.Signature):
     """
     Validate the quality and completeness of generated specifications.
     """
-    
-    specification: str = dspy.InputField(
-        desc="Generated specification in JSON format"
-    )
-    requirements_checklist: str = dspy.InputField(
-        desc="Checklist of mandatory requirements"
-    )
-    
+
+    specification: str = dspy.InputField(desc="Generated specification in JSON format")
+    requirements_checklist: str = dspy.InputField(desc="Checklist of mandatory requirements")
+
     validation_result: str = dspy.OutputField(
         desc="Validation result with score (0-100) and issues found"
     )
-    recommendations: str = dspy.OutputField(
-        desc="Recommendations for improvement"
-    )
+    recommendations: str = dspy.OutputField(desc="Recommendations for improvement")

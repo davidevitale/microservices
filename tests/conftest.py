@@ -1,31 +1,32 @@
 """
 Pytest Configuration - Comprehensive Fixtures
 """
-import pytest
+
 import json
-from typing import Generator, Dict, Any
-from datetime import datetime
-from fastapi.testclient import TestClient
+from collections.abc import Generator
 from unittest.mock import MagicMock, patch
+
+import pytest
+from fastapi.testclient import TestClient
 
 from app.models.input_schema import (
     ArchitectureInput,
+    CommunicationPattern,
     Subdomain,
     SubdomainType,
-    CommunicationPattern
 )
 from app.models.output_schema import (
+    APIEndpoint,
+    EventDefinition,
     MicroserviceSpec,
     Requirement,
-    EventDefinition,
-    APIEndpoint,
-    ServiceDependency,
+    RequirementPriority,
     RequirementType,
-    RequirementPriority
+    ServiceDependency,
 )
 
-
 # ==================== INPUT FIXTURES ====================
+
 
 @pytest.fixture
 def sample_subdomain() -> Subdomain:
@@ -39,13 +40,10 @@ def sample_subdomain() -> Subdomain:
             "Order creation and validation",
             "Order status tracking",
             "Order cancellation",
-            "Integration with payment service"
+            "Integration with payment service",
         ],
         dependencies=["payment-service", "inventory-service"],
-        communication_patterns=[
-            CommunicationPattern.ASYNC_EVENT,
-            CommunicationPattern.SYNC_REST
-        ]
+        communication_patterns=[CommunicationPattern.ASYNC_EVENT, CommunicationPattern.SYNC_REST],
     )
 
 
@@ -61,10 +59,10 @@ def payment_subdomain() -> Subdomain:
             "Process payments",
             "Handle refunds",
             "Manage payment methods",
-            "Transaction logging"
+            "Transaction logging",
         ],
         dependencies=["fraud-detection"],
-        communication_patterns=[CommunicationPattern.SYNC_REST]
+        communication_patterns=[CommunicationPattern.SYNC_REST],
     )
 
 
@@ -80,17 +78,16 @@ def inventory_subdomain() -> Subdomain:
             "Track stock levels",
             "Reserve items",
             "Update inventory",
-            "Low stock alerts"
+            "Low stock alerts",
         ],
         dependencies=[],
-        communication_patterns=[CommunicationPattern.ASYNC_EVENT]
+        communication_patterns=[CommunicationPattern.ASYNC_EVENT],
     )
 
 
 @pytest.fixture
 def sample_architecture(
-    sample_subdomain: Subdomain,
-    payment_subdomain: Subdomain
+    sample_subdomain: Subdomain, payment_subdomain: Subdomain
 ) -> ArchitectureInput:
     """Complete architecture with multiple subdomains"""
     return ArchitectureInput(
@@ -101,7 +98,7 @@ def sample_architecture(
             "max_response_time": "200ms",
             "availability": "99.9%",
             "data_retention": "7 years",
-            "compliance": "PCI-DSS, GDPR"
+            "compliance": "PCI-DSS, GDPR",
         },
         technical_stack={
             "language": "Python",
@@ -109,8 +106,8 @@ def sample_architecture(
             "database": "PostgreSQL",
             "cache": "Redis",
             "message_broker": "RabbitMQ",
-            "monitoring": "Prometheus"
-        }
+            "monitoring": "Prometheus",
+        },
     )
 
 
@@ -126,13 +123,14 @@ def minimal_architecture() -> ArchitectureInput:
                 type=SubdomainType.GENERIC,
                 description="Test service for validation",
                 bounded_context="Test",
-                responsibilities=["Test functionality"]
+                responsibilities=["Test functionality"],
             )
-        ]
+        ],
     )
 
 
 # ==================== OUTPUT FIXTURES ====================
+
 
 @pytest.fixture
 def sample_requirement() -> Requirement:
@@ -147,9 +145,9 @@ def sample_requirement() -> Requirement:
             "Order ID is generated and returned",
             "Order is persisted in database",
             "OrderCreatedEvent is published",
-            "Payment initiation is triggered"
+            "Payment initiation is triggered",
         ],
-        related_requirements=["FR-002", "NFR-001"]
+        related_requirements=["FR-002", "NFR-001"],
     )
 
 
@@ -166,16 +164,16 @@ def sample_event() -> EventDefinition:
                 "customer_id": {"type": "string"},
                 "total_amount": {"type": "number"},
                 "items": {"type": "array"},
-                "created_at": {"type": "string", "format": "date-time"}
+                "created_at": {"type": "string", "format": "date-time"},
             },
-            "required": ["order_id", "customer_id", "total_amount"]
+            "required": ["order_id", "customer_id", "total_amount"],
         },
         trigger_conditions=[
             "Order is validated",
             "Payment method is verified",
-            "Items are in stock"
+            "Items are in stock",
         ],
-        consumers=["inventory-service", "notification-service", "analytics-service"]
+        consumers=["inventory-service", "notification-service", "analytics-service"],
     )
 
 
@@ -191,20 +189,20 @@ def sample_api_endpoint() -> APIEndpoint:
             "properties": {
                 "customer_id": {"type": "string"},
                 "items": {"type": "array"},
-                "payment_method": {"type": "string"}
+                "payment_method": {"type": "string"},
             },
-            "required": ["customer_id", "items"]
+            "required": ["customer_id", "items"],
         },
         response_schema={
             "type": "object",
             "properties": {
                 "order_id": {"type": "string"},
                 "status": {"type": "string"},
-                "created_at": {"type": "string"}
-            }
+                "created_at": {"type": "string"},
+            },
         },
         authentication_required=True,
-        rate_limit="100/min"
+        rate_limit="100/min",
     )
 
 
@@ -216,7 +214,7 @@ def sample_dependency() -> ServiceDependency:
         dependency_type="service",
         communication_method="rest",
         criticality="critical",
-        fallback_strategy="Queue for later processing with exponential backoff"
+        fallback_strategy="Queue for later processing with exponential backoff",
     )
 
 
@@ -225,7 +223,7 @@ def sample_microservice_spec(
     sample_requirement: Requirement,
     sample_event: EventDefinition,
     sample_api_endpoint: APIEndpoint,
-    sample_dependency: ServiceDependency
+    sample_dependency: ServiceDependency,
 ) -> MicroserviceSpec:
     """Complete microservice specification"""
     return MicroserviceSpec(
@@ -241,7 +239,7 @@ def sample_microservice_spec(
                 priority=RequirementPriority.HIGH,
                 title="Response Time",
                 description="API must respond within 200ms for 95th percentile",
-                acceptance_criteria=["p95 < 200ms", "p99 < 500ms"]
+                acceptance_criteria=["p95 < 200ms", "p99 < 500ms"],
             )
         ],
         events_published=[sample_event],
@@ -252,170 +250,185 @@ def sample_microservice_spec(
             "language": "Python 3.11",
             "framework": "FastAPI",
             "database": "PostgreSQL",
-            "cache": "Redis"
+            "cache": "Redis",
         },
         infrastructure_requirements={
             "cpu": "2 cores",
             "memory": "4GB",
             "storage": "20GB",
-            "replicas": 3
+            "replicas": 3,
         },
         monitoring_requirements=[
             "Prometheus metrics",
             "Structured logging",
             "Distributed tracing",
-            "Health checks"
-        ]
+            "Health checks",
+        ],
     )
 
 
 # ==================== MOCK FIXTURES ====================
 
+
 @pytest.fixture
-def mock_llm_response() -> Dict[str, str]:
+def mock_llm_response() -> dict[str, str]:
     """Mock LLM response with valid JSON"""
     return {
-        "functional_requirements": json.dumps([
-            {
-                "id": "FR-001",
-                "title": "Create Order",
-                "description": "User can create a new order with items",
-                "acceptance_criteria": [
-                    "Order ID generated",
-                    "Order stored in database",
-                    "Event published"
-                ],
-                "priority": "critical"
-            },
-            {
-                "id": "FR-002",
-                "title": "Cancel Order",
-                "description": "User can cancel pending orders",
-                "acceptance_criteria": [
-                    "Order status updated",
-                    "Refund initiated",
-                    "CancelEvent published"
-                ],
-                "priority": "high"
-            }
-        ]),
-        "non_functional_requirements": json.dumps([
-            {
-                "id": "NFR-001",
-                "title": "Performance",
-                "description": "Order creation must complete in < 200ms",
-                "acceptance_criteria": ["95th percentile < 200ms"],
-                "priority": "high"
-            },
-            {
-                "id": "NFR-002",
-                "title": "Availability",
-                "description": "Service must be available 99.9% of the time",
-                "acceptance_criteria": ["Uptime > 99.9%", "Max downtime 8.76h/year"],
-                "priority": "critical"
-            }
-        ]),
-        "events_published": json.dumps([
-            {
-                "event_name": "OrderCreatedEvent",
-                "event_type": "domain",
-                "payload_schema": {
-                    "order_id": "string",
-                    "customer_id": "string",
-                    "total_amount": "number"
+        "functional_requirements": json.dumps(
+            [
+                {
+                    "id": "FR-001",
+                    "title": "Create Order",
+                    "description": "User can create a new order with items",
+                    "acceptance_criteria": [
+                        "Order ID generated",
+                        "Order stored in database",
+                        "Event published",
+                    ],
+                    "priority": "critical",
                 },
-                "trigger_conditions": ["Order validated and saved"],
-                "consumers": ["inventory-service", "notification-service"]
-            }
-        ]),
-        "events_subscribed": json.dumps([
+                {
+                    "id": "FR-002",
+                    "title": "Cancel Order",
+                    "description": "User can cancel pending orders",
+                    "acceptance_criteria": [
+                        "Order status updated",
+                        "Refund initiated",
+                        "CancelEvent published",
+                    ],
+                    "priority": "high",
+                },
+            ]
+        ),
+        "non_functional_requirements": json.dumps(
+            [
+                {
+                    "id": "NFR-001",
+                    "title": "Performance",
+                    "description": "Order creation must complete in < 200ms",
+                    "acceptance_criteria": ["95th percentile < 200ms"],
+                    "priority": "high",
+                },
+                {
+                    "id": "NFR-002",
+                    "title": "Availability",
+                    "description": "Service must be available 99.9% of the time",
+                    "acceptance_criteria": ["Uptime > 99.9%", "Max downtime 8.76h/year"],
+                    "priority": "critical",
+                },
+            ]
+        ),
+        "events_published": json.dumps(
+            [
+                {
+                    "event_name": "OrderCreatedEvent",
+                    "event_type": "domain",
+                    "payload_schema": {
+                        "order_id": "string",
+                        "customer_id": "string",
+                        "total_amount": "number",
+                    },
+                    "trigger_conditions": ["Order validated and saved"],
+                    "consumers": ["inventory-service", "notification-service"],
+                }
+            ]
+        ),
+        "events_subscribed": json.dumps(
+            [
+                {
+                    "event_name": "PaymentCompletedEvent",
+                    "event_type": "domain",
+                    "payload_schema": {"payment_id": "string", "order_id": "string"},
+                    "trigger_conditions": [],
+                    "consumers": [],
+                }
+            ]
+        ),
+        "api_endpoints": json.dumps(
+            [
+                {
+                    "method": "POST",
+                    "path": "/api/v1/orders",
+                    "description": "Create new order",
+                    "request_schema": {"customer_id": "string", "items": "array"},
+                    "response_schema": {"order_id": "string", "status": "string"},
+                    "authentication_required": True,
+                },
+                {
+                    "method": "GET",
+                    "path": "/api/v1/orders/{order_id}",
+                    "description": "Get order details",
+                    "response_schema": {"order": "object"},
+                    "authentication_required": True,
+                },
+            ]
+        ),
+        "service_dependencies": json.dumps(
+            [
+                {
+                    "service_name": "payment-service",
+                    "dependency_type": "service",
+                    "communication_method": "rest",
+                    "criticality": "critical",
+                    "fallback_strategy": "Queue for retry",
+                }
+            ]
+        ),
+        "infrastructure_requirements": json.dumps(
             {
-                "event_name": "PaymentCompletedEvent",
-                "event_type": "domain",
-                "payload_schema": {"payment_id": "string", "order_id": "string"},
-                "trigger_conditions": [],
-                "consumers": []
+                "database": "PostgreSQL with replication",
+                "cache": "Redis cluster",
+                "storage": "S3 for documents",
+                "queue": "RabbitMQ with DLQ",
             }
-        ]),
-        "api_endpoints": json.dumps([
-            {
-                "method": "POST",
-                "path": "/api/v1/orders",
-                "description": "Create new order",
-                "request_schema": {"customer_id": "string", "items": "array"},
-                "response_schema": {"order_id": "string", "status": "string"},
-                "authentication_required": True
-            },
-            {
-                "method": "GET",
-                "path": "/api/v1/orders/{order_id}",
-                "description": "Get order details",
-                "response_schema": {"order": "object"},
-                "authentication_required": True
-            }
-        ]),
-        "service_dependencies": json.dumps([
-            {
-                "service_name": "payment-service",
-                "dependency_type": "service",
-                "communication_method": "rest",
-                "criticality": "critical",
-                "fallback_strategy": "Queue for retry"
-            }
-        ]),
-        "infrastructure_requirements": json.dumps({
-            "database": "PostgreSQL with replication",
-            "cache": "Redis cluster",
-            "storage": "S3 for documents",
-            "queue": "RabbitMQ with DLQ"
-        })
+        ),
     }
 
 
 @pytest.fixture
-def mock_validation_response() -> Dict[str, str]:
+def mock_validation_response() -> dict[str, str]:
     """Mock validation response"""
     return {
         "validation_result": "Score: 92/100. All critical requirements met.",
-        "recommendations": "Consider adding more detailed acceptance criteria for NFRs"
+        "recommendations": "Consider adding more detailed acceptance criteria for NFRs",
     }
 
 
 @pytest.fixture
-def mock_dspy_pipeline(mock_llm_response: Dict, mock_validation_response: Dict) -> Generator:
+def mock_dspy_pipeline(mock_llm_response: dict, mock_validation_response: dict) -> Generator:
     """Mock DSPy pipeline"""
-    with patch('app.modules.generator_module.dspy.ChainOfThought') as mock_cot:
+    with patch("app.modules.generator_module.dspy.ChainOfThought") as mock_cot:
         mock_generate = MagicMock()
         mock_generate.return_value = MagicMock(**mock_llm_response)
-        
+
         mock_validate = MagicMock()
         mock_validate.return_value = MagicMock(**mock_validation_response)
-        
+
         mock_cot.side_effect = [mock_generate, mock_validate]
-        
+
         yield mock_cot
 
 
 # ==================== API CLIENT FIXTURES ====================
 
+
 @pytest.fixture
 def test_client() -> Generator[TestClient, None, None]:
     """Test client for API testing"""
     from app.main import app
+
     with TestClient(app) as client:
         yield client
 
 
 @pytest.fixture
-def auth_headers() -> Dict[str, str]:
+def auth_headers() -> dict[str, str]:
     """Mock authentication headers"""
-    return {
-        "Authorization": "Bearer mock_token_12345",
-        "Content-Type": "application/json"
-    }
+    return {"Authorization": "Bearer mock_token_12345", "Content-Type": "application/json"}
 
 
 # ==================== UTILITY FIXTURES ====================
+
 
 @pytest.fixture
 def temp_env_file(tmp_path):
@@ -433,10 +446,10 @@ API_PORT=8003
 def sample_json_files(tmp_path):
     """Create sample JSON files for testing"""
     input_file = tmp_path / "input.json"
-    input_file.write_text(json.dumps({
-        "project_name": "test-project",
-        "project_description": "Test",
-        "subdomains": []
-    }))
-    
+    input_file.write_text(
+        json.dumps(
+            {"project_name": "test-project", "project_description": "Test", "subdomains": []}
+        )
+    )
+
     return {"input": input_file}
