@@ -19,11 +19,12 @@ class LLMEngine:
             return self._lm
             
         if self.provider == "ollama":
-            self._lm = dspy.LM(
-                model=f"ollama/{settings.ollama_model}",
-                api_base=settings.ollama_base_url,
-                max_tokens=4000,
-                temperature=0.7
+            self._lm = dspy.OllamaLocal(
+                model=settings.ollama_model,
+                base_url=settings.ollama_base_url,
+                max_tokens=2000,
+                temperature=0.7,
+                timeout_s=300  # 5 minuti di timeout
             )
         else:
             raise ValueError(f"Unsupported provider: {self.provider}")

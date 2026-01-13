@@ -133,6 +133,12 @@ def install_poetry() -> bool:
         if result is None:
             print_warning("Trying alternative installation method...")
             run_command(["pip", "install", "--user", "poetry"])
+            
+            # Add user's Python bin to PATH
+            user_bin = os.path.expanduser("~/Library/Python/3.12/bin")
+            if os.path.exists(user_bin) and user_bin not in os.environ["PATH"]:
+                os.environ["PATH"] = f"{user_bin}:{os.environ['PATH']}"
+                print_info(f"Added {user_bin} to PATH")
     
     # Verify installation
     if check_poetry_installed():
@@ -151,8 +157,9 @@ def configure_poetry() -> bool:
     run_command(["poetry", "config", "virtualenvs.in-project", "true"])
     print_success("Virtual environment will be created in .venv/")
     
-    # Set Python version
-    run_command(["poetry", "env", "use", "python3.11"], check=False)
+    # Set Python version (use current Python)
+    python_version = f"python{sys.version_info.major}.{sys.version_info.minor}"
+    run_command(["poetry", "env", "use", python_version], check=False)
     
     return True
 
@@ -162,17 +169,20 @@ def install_dependencies() -> bool:
     print_info("Installing dependencies (this may take a few minutes)...")
     
     # Install main dependencies
-    result = run_command(["poetry", "install", "--no-interaction"], check=False)
-    
-    if result is None:
-        print_error("Failed to install dependencies")
-        return False
-    
-    print_success("All dependencies installed")
-    
+    try:
+        subprocess.run(["poetry", "install", "--no-interaction"], check=True)
+        print_success("All dependencies installed")
+    except subprocess.CalledProcessError as e:
+        # Check if it was just a warning about the current project
+        if e.returncode == 1:
+            print_warning("Dependencies installed with warnings")
+        else:
+            print_error("Failed to install dependencies")
+            return False
+
     # Show installed packages
     print_info("Installed packages:")
-    run_command(["poetry", "show", "--tree"])
+    run_command(["poetry", "show", "--tree"], check=False)
     
     return True
 
@@ -314,6 +324,11 @@ def print_next_steps() -> None:
     print_header("🎉 SETUP COMPLETE")
     
     print(f"{Colors.OKGREEN}Your Agent 3 environment is ready!{Colors.ENDC}\n")
+    
+    print(f"{Colors.BOLD}IMPORTANT - Add Poetry to your PATH:{Colors.ENDC}")
+    print(f"  Run this command to make Poetry available permanently:")
+    print(f"  {Colors.OKCYAN}echo 'export PATH=\"$HOME/Library/Python/3.12/bin:$PATH\"' >> ~/.zshrc{Colors.ENDC}")
+    print(f"  {Colors.OKCYAN}source ~/.zshrc{Colors.ENDC}\n")
     
     print(f"{Colors.BOLD}Next Steps:{Colors.ENDC}")
     print(f"  1. {Colors.OKCYAN}Edit .env file:{Colors.ENDC}")

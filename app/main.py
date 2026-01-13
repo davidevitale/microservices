@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 import logging
 
 from app.core.config import settings
-from app.core.llm_config import llm_engine
+from app.core.llm_conf import llm_engine
 from app.models.input_schema import ArchitectureInput
 from app.models.output_schema import FunctionalSpecificationOutput
 from app.modules.generator_module import SpecificationOrchestrator

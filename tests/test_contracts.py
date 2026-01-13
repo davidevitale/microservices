@@ -59,6 +59,9 @@ class TestInputSchemaContracts:
             description="This is a valid test description",
             bounded_context="Test",
             responsibilities=["Test"]
+            description="Test description for order service domain",
+            bounded_context="Order Management Context",
+            responsibilities=["Handle order processing"](Add gitignore and package init files)
         )
         assert subdomain.name == "order-service"
     
