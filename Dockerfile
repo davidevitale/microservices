@@ -62,4 +62,4 @@ ENV PYTHONUNBUFFERED=1 \
     API_PORT=8003
 
 # Run application
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8003"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8003", "--timeout-keep-alive", "300"]

@@ -152,5 +152,6 @@ if __name__ == "__main__":
         host=settings.api_host,
         port=settings.api_port,
         reload=settings.api_reload,
-        log_level=settings.api_log_level
+        log_level=settings.api_log_level,
+        timeout_keep_alive=300
     )
