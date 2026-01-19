@@ -1,277 +1,206 @@
 """
-generator_module.py - SOLUZIONE: HTTP Diretto + Timeout Reali
+generator_module.py - DSPy-Based Specification Generator
+UPDATED: Added SSE streaming support in orchestrator
 """
 
 import json
 import re
 from datetime import datetime
-from typing import Any, Optional
-import httpx
+from typing import Any, Optional, AsyncGenerator
+
+import dspy
+from pydantic import ValidationError
+
 from app.models.input_schema import ArchitectureInput, Subdomain
-from app.core.config import settings
+from app.core.llm_config import llm_engine
 
 
-class OllamaClient:
-    """Client HTTP diretto per Ollama con timeout controllati"""
+# ============================================================================
+# DSPy SIGNATURES - Definizione contratti input/output
+# ============================================================================
+
+class GenerateFunctionalRequirements(dspy.Signature):
+    """Generate structured functional requirements for a microservice"""
     
-    def __init__(self, base_url: str, model: str, timeout: int = 300):
-        self.base_url = base_url.rstrip('/')
-        self.model = model
-        self.timeout = timeout
+    service_name: str = dspy.InputField(desc="Nome del microservizio")
+    service_description: str = dspy.InputField(desc="Descrizione dettagliata del servizio")
+    responsibilities: str = dspy.InputField(desc="Responsabilità principali (lista)")
+    bounded_context: str = dspy.InputField(desc="Bounded Context DDD")
     
-    def generate(self, prompt: str, system: str = "") -> str:
-        """
-        Chiamata HTTP diretta con timeout reale
-        """
-        try:
-            with httpx.Client(timeout=self.timeout) as client:
-                response = client.post(
-                    f"{self.base_url}/api/generate",
-                    json={
-                        "model": self.model,
-                        "prompt": prompt,
-                        "system": system,
-                        "stream": False,
-                        "options": {
-                            "temperature": 0.3,  # Più deterministico
-                            "num_predict": 800,  # Ridotto da 1000
-                            "num_ctx": 2048,     # Context window ridotto
-                            "top_p": 0.9,        # Più focalizzato
-                            "top_k": 40,         # Riduce opzioni
-                        }
-                    }
-                )
-                response.raise_for_status()
-                return response.json()["response"]
-        except httpx.TimeoutException:
-            raise TimeoutError(f"Ollama timeout after {self.timeout}s")
-        except Exception as e:
-            raise RuntimeError(f"Ollama error: {e}")
-
-
-class SpecificationGeneratorPipeline:
-    """
-    Pipeline semplificata senza DSPy
-    """
-
-    def __init__(self):
-        self.ollama = OllamaClient(
-            base_url=settings.ollama_base_url,
-            model=settings.ollama_model,
-            timeout=300  # 5 minuti per chiamata LLM
-        )
-
-    def forward(
-        self,
-        subdomain: Subdomain,
-        technical_stack: dict[str, str],
-        global_constraints: dict[str, str],
-    ) -> dict[str, Any]:
-        """
-        Generate specification con chiamate HTTP dirette
-        """
-        
-        service_name = subdomain.name
-        print(f"[{service_name}] Starting generation...")
-
-        # STEP 1: Functional Requirements (CRITICO)
-        functional_reqs = self._generate_requirements(subdomain)
-        
-        # STEP 2: API Endpoints (OPZIONALE)
-        api_endpoints = self._generate_endpoints(subdomain, functional_reqs)
-        
-        # STEP 3: Events (OPZIONALE)
-        events_published = self._generate_events(subdomain)
-
-        # ASSEMBLY FINALE
-        return {
-            "service_name": service_name,
-            "version": "1.0.0",
-            "description": subdomain.description,
-            "bounded_context": subdomain.bounded_context,
-            "functional_requirements": functional_reqs,
-            "non_functional_requirements": self._generate_nfr_template(service_name),
-            "events_published": events_published,
-            "events_subscribed": [],
-            "api_endpoints": api_endpoints,
-            "dependencies": self._convert_dependencies(subdomain),
-            "technology_stack": technical_stack or {"language": "Python", "framework": "FastAPI"},
-            "infrastructure_requirements": self._generate_infra_template(),
-            "monitoring_requirements": [
-                "Prometheus metrics endpoint /metrics",
-                "Health check endpoint /health",
-                "Structured JSON logging",
-            ],
-            "generated_at": datetime.utcnow(),
-            "generated_by": "agent3-spec-generator",
-        }
-
-    def _generate_requirements(self, subdomain: Subdomain) -> list[dict]:
-        """
-        Genera functional requirements con prompt semplificato
-        """
-        prompt = f"""Generate 3-5 functional requirements for this microservice:
-
-Service: {subdomain.name}
-Description: {subdomain.description}
-Responsibilities: {', '.join(subdomain.responsibilities[:3])}
-
-Return ONLY a JSON array with this EXACT format (no markdown, no explanation):
+    requirements_json: str = dspy.OutputField(
+        desc="""Array JSON di requisiti funzionali. Formato ESATTO:
 [
-  {{
+  {
     "id": "FR-001",
-    "title": "Short title",
-    "description": "Detailed description",
-    "acceptance_criteria": ["criterion 1", "criterion 2"]
-  }}
-]"""
+    "type": "functional",
+    "priority": "critical|high|medium|low",
+    "title": "Titolo conciso (max 100 char)",
+    "description": "Descrizione dettagliata (min 50 char)",
+    "acceptance_criteria": ["criterio 1", "criterio 2", "criterio 3"]
+  }
+]
+Genera 3-5 requisiti. NO markdown, NO spiegazioni, SOLO JSON valido."""
+    )
 
-        try:
-            response = self.ollama.generate(
-                prompt=prompt,
-                system="You are a technical specification generator. Output ONLY valid JSON."
-            )
-            return self._parse_requirements(response, subdomain.name)
-        except Exception as e:
-            print(f"[{subdomain.name}] Requirements generation failed: {e}")
-            return self._generate_fallback_requirements(subdomain)
 
-    def _generate_endpoints(self, subdomain: Subdomain, requirements: list[dict]) -> list[dict]:
-        """
-        Genera API endpoints basati sui requirements
-        """
-        req_titles = ", ".join([r["title"] for r in requirements[:3]])
-        
-        prompt = f"""Generate 3-5 REST API endpoints for this service:
-
-Service: {subdomain.name}
-Requirements: {req_titles}
-
-Return ONLY a JSON array with this format:
-[
-  {{
-    "method": "POST",
-    "path": "/api/v1/resource",
-    "description": "Endpoint description",
-    "response_schema": {{"id": "string", "status": "string"}}
-  }}
-]"""
-
-        try:
-            response = self.ollama.generate(prompt, system="Output ONLY valid JSON.")
-            return self._parse_json_array(response, max_items=5)
-        except Exception as e:
-            print(f"[{subdomain.name}] Endpoints generation failed: {e}")
-            return self._generate_fallback_endpoints(subdomain)
-
-    def _generate_events(self, subdomain: Subdomain) -> list[dict]:
-        """
-        Genera event definitions
-        """
-        prompt = f"""Generate 2-3 domain events for this service:
-
-Service: {subdomain.name}
-Responsibilities: {', '.join(subdomain.responsibilities[:2])}
-
-Return ONLY a JSON array:
-[
-  {{
-    "event_name": "EntityCreatedEvent",
-    "event_type": "domain",
-    "payload_schema": {{"entity_id": "string", "timestamp": "string"}},
-    "trigger_conditions": ["condition 1"]
-  }}
-]"""
-
-        try:
-            response = self.ollama.generate(prompt, system="Output ONLY valid JSON.")
-            return self._parse_json_array(response, max_items=3)
-        except Exception as e:
-            print(f"[{subdomain.name}] Events generation failed: {e}")
-            return []
-
-    # === PARSING ROBUSTO ===
+class GenerateAPIEndpoints(dspy.Signature):
+    """Generate REST API endpoints specification"""
     
-    def _parse_requirements(self, raw_text: str, service_name: str) -> list[dict]:
-        """
-        Parsing ultra-robusto per requirements
-        """
-        # Step 1: Estrai JSON
-        json_data = self._extract_json(raw_text)
-        if not json_data:
-            return self._generate_fallback_requirements(None)
+    service_name: str = dspy.InputField()
+    functional_requirements: str = dspy.InputField(desc="Requisiti funzionali già generati")
+    
+    endpoints_json: str = dspy.OutputField(
+        desc="""Array JSON di API endpoints. Formato:
+[
+  {
+    "method": "GET|POST|PUT|DELETE|PATCH",
+    "path": "/api/v1/resource",
+    "description": "Descrizione endpoint",
+    "request_schema": {"field": "type"},
+    "response_schema": {"field": "type"},
+    "authentication_required": true,
+    "rate_limit": "100/min"
+  }
+]
+Genera 3-5 endpoints REST. SOLO JSON valido."""
+    )
+
+
+class GenerateDomainEvents(dspy.Signature):
+    """Generate domain events for event-driven architecture"""
+    
+    service_name: str = dspy.InputField()
+    responsibilities: str = dspy.InputField()
+    communication_patterns: str = dspy.InputField()
+    
+    events_json: str = dspy.OutputField(
+        desc="""Array JSON di eventi di dominio. Formato:
+[
+  {
+    "event_name": "EntityCreatedEvent",
+    "event_type": "domain|integration|notification",
+    "payload_schema": {"entity_id": "string", "timestamp": "string"},
+    "trigger_conditions": ["condizione 1", "condizione 2"],
+    "consumers": ["service-name"]
+  }
+]
+Genera 2-4 eventi. SOLO JSON valido."""
+    )
+
+
+class GenerateNonFunctionalRequirements(dspy.Signature):
+    """Generate non-functional requirements (NFRs)"""
+    
+    service_name: str = dspy.InputField()
+    service_type: str = dspy.InputField(desc="core|supporting|generic")
+    
+    nfr_json: str = dspy.OutputField(
+        desc="""Array JSON di requisiti non funzionali. Formato:
+[
+  {
+    "id": "NFR-001",
+    "type": "non_functional",
+    "priority": "high|medium|low",
+    "title": "Titolo (Performance|Security|Scalability|Availability)",
+    "description": "Descrizione dettagliata",
+    "acceptance_criteria": ["SLA specifico", "metrica misurabile"]
+  }
+]
+Genera 3-4 NFRs. Focus: performance, sicurezza, scalabilità, disponibilità."""
+    )
+
+
+# ============================================================================
+# DSPy MODULES - Componenti riusabili con Chain-of-Thought
+# ============================================================================
+
+class FunctionalRequirementsGenerator(dspy.Module):
+    """Module per generazione requisiti funzionali con CoT"""
+    
+    def __init__(self):
+        super().__init__()
+        self.generate = dspy.ChainOfThought(GenerateFunctionalRequirements)
+    
+    def forward(self, subdomain: Subdomain) -> list[dict]:
+        """Genera requisiti funzionali con reasoning step-by-step"""
+        try:
+            responsibilities_str = "\n- " + "\n- ".join(subdomain.responsibilities[:5])
+            
+            result = self.generate(
+                service_name=subdomain.name,
+                service_description=subdomain.description,
+                responsibilities=responsibilities_str,
+                bounded_context=subdomain.bounded_context
+            )
+            
+            requirements = self._parse_and_validate(result.requirements_json, subdomain.name)
+            
+            if not requirements:
+                raise ValueError("Empty requirements from LLM")
+            
+            return requirements
+            
+        except Exception as e:
+            print(f"⚠️ Requirements generation failed for {subdomain.name}: {e}")
+            return self._fallback_requirements(subdomain)
+    
+    def _parse_and_validate(self, json_str: str, service_name: str) -> list[dict]:
+        """Parse JSON con validazione robusta"""
+        json_clean = self._extract_json(json_str)
         
-        # Step 2: Valida struttura
-        if not isinstance(json_data, list):
-            json_data = [json_data]
+        if not json_clean:
+            return []
         
-        # Step 3: Normalizza ogni requirement
-        requirements = []
-        for idx, item in enumerate(json_data[:5]):  # Max 5
-            if not isinstance(item, dict):
+        try:
+            data = json.loads(json_clean)
+        except json.JSONDecodeError as e:
+            print(f"❌ JSON decode error: {e}")
+            return []
+        
+        if not isinstance(data, list):
+            data = [data]
+        
+        validated = []
+        for idx, req in enumerate(data[:5]):
+            if not isinstance(req, dict):
                 continue
             
-            req = {
-                "id": item.get("id", f"FR-{idx+1:03d}"),
+            normalized = {
+                "id": req.get("id", f"FR-{idx+1:03d}"),
                 "type": "functional",
-                "priority": self._normalize_priority(item.get("priority", "medium")),
-                "title": str(item.get("title", f"Requirement {idx+1}"))[:200],
-                "description": str(item.get("description", ""))[:1000],
-                "acceptance_criteria": self._normalize_criteria(item.get("acceptance_criteria", [])),
-                "related_requirements": [],
+                "priority": self._normalize_priority(req.get("priority", "medium")),
+                "title": str(req.get("title", f"{service_name} requirement {idx+1}"))[:200],
+                "description": str(req.get("description", "To be defined"))[:1000],
+                "acceptance_criteria": self._normalize_criteria(req.get("acceptance_criteria", [])),
+                "related_requirements": req.get("related_requirements", [])
             }
-            requirements.append(req)
+            validated.append(normalized)
         
-        return requirements if requirements else self._generate_fallback_requirements(None)
-
-    def _parse_json_array(self, raw_text: str, max_items: int = 10) -> list[dict]:
-        """
-        Parsing generico per array JSON
-        """
-        json_data = self._extract_json(raw_text)
-        if not json_data:
-            return []
+        return validated
+    
+    def _extract_json(self, text: str) -> Optional[str]:
+        """Estrai JSON da testo con markdown or noise"""
+        match = re.search(r'```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```', text, re.DOTALL)
+        if match:
+            return match.group(1)
         
-        if not isinstance(json_data, list):
-            json_data = [json_data]
+        match = re.search(r'(\[.*\]|\{.*\})', text, re.DOTALL)
+        if match:
+            return match.group(1)
         
-        return [item for item in json_data[:max_items] if isinstance(item, dict)]
-
-    def _extract_json(self, text: str) -> Optional[Any]:
-        """
-        Estrai JSON da testo sporco (con markdown, spiegazioni, etc)
-        """
-        # Metodo 1: Trova blocco ```json
-        json_block = re.search(r'```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```', text, re.DOTALL)
-        if json_block:
-            try:
-                return json.loads(json_block.group(1))
-            except:
-                pass
-        
-        # Metodo 2: Trova primo array/object
-        json_match = re.search(r'(\[.*\]|\{.*\})', text, re.DOTALL)
-        if json_match:
-            try:
-                return json.loads(json_match.group(1))
-            except:
-                pass
-        
-        # Metodo 3: Prova tutto il testo
-        try:
-            return json.loads(text.strip())
-        except:
-            return None
-
+        return text.strip()
+    
     def _normalize_priority(self, priority: str) -> str:
         """Normalizza priority values"""
-        priority = str(priority).lower()
-        if "critical" in priority or "high" in priority:
+        p = str(priority).lower()
+        if "critical" in p:
+            return "critical"
+        elif "high" in p:
             return "high"
-        elif "low" in priority:
+        elif "low" in p:
             return "low"
         return "medium"
-
+    
     def _normalize_criteria(self, criteria: Any) -> list[str]:
         """Normalizza acceptance criteria"""
         if isinstance(criteria, list):
@@ -279,42 +208,106 @@ Return ONLY a JSON array:
         elif isinstance(criteria, str):
             return [criteria[:200]]
         return ["Acceptance criteria to be defined"]
-
-    # === FALLBACKS ===
     
-    def _generate_fallback_requirements(self, subdomain: Optional[Subdomain]) -> list[dict]:
-        """Requirements template quando LLM fallisce"""
-        name = subdomain.name if subdomain else "service"
+    def _fallback_requirements(self, subdomain: Subdomain) -> list[dict]:
+        """Fallback template quando generazione fallisce"""
         return [
             {
                 "id": "FR-001",
                 "type": "functional",
                 "priority": "high",
-                "title": f"Core {name} functionality",
-                "description": f"Implement core business logic for {name} service",
+                "title": f"Core {subdomain.name} functionality",
+                "description": f"Implement core business logic for {subdomain.name} based on: {', '.join(subdomain.responsibilities[:3])}",
                 "acceptance_criteria": [
-                    "Service responds to health checks",
-                    "Core API endpoints are functional",
-                    "Data validation is implemented",
+                    "Service is operational and responds to health checks",
+                    "Core domain logic is implemented",
+                    "Basic CRUD operations are functional"
                 ],
-                "related_requirements": [],
+                "related_requirements": []
             },
             {
                 "id": "FR-002",
                 "type": "functional",
                 "priority": "medium",
-                "title": f"Data persistence for {name}",
-                "description": f"Implement data storage and retrieval for {name}",
+                "title": f"Data persistence for {subdomain.name}",
+                "description": f"Implement data storage and retrieval mechanisms",
                 "acceptance_criteria": [
                     "Data is persisted correctly",
-                    "CRUD operations are functional",
+                    "Data integrity is maintained",
+                    "Query performance meets SLA"
                 ],
-                "related_requirements": ["FR-001"],
+                "related_requirements": ["FR-001"]
             }
         ]
 
-    def _generate_fallback_endpoints(self, subdomain: Subdomain) -> list[dict]:
-        """Endpoints template"""
+
+class APIEndpointsGenerator(dspy.Module):
+    """Module per generazione API endpoints"""
+    
+    def __init__(self):
+        super().__init__()
+        self.generate = dspy.ChainOfThought(GenerateAPIEndpoints)
+    
+    def forward(self, subdomain: Subdomain, requirements: list[dict]) -> list[dict]:
+        """Genera REST API endpoints basati su requirements"""
+        try:
+            req_summary = "\n".join([
+                f"- {req['id']}: {req['title']}"
+                for req in requirements[:5]
+            ])
+            
+            result = self.generate(
+                service_name=subdomain.name,
+                functional_requirements=req_summary
+            )
+            
+            endpoints = self._parse_endpoints(result.endpoints_json)
+            return endpoints if endpoints else self._fallback_endpoints(subdomain)
+            
+        except Exception as e:
+            print(f"⚠️ API endpoints generation failed: {e}")
+            return self._fallback_endpoints(subdomain)
+    
+    def _parse_endpoints(self, json_str: str) -> list[dict]:
+        """Parse endpoints JSON"""
+        json_clean = self._extract_json(json_str)
+        if not json_clean:
+            return []
+        
+        try:
+            data = json.loads(json_clean)
+            if not isinstance(data, list):
+                data = [data]
+            
+            validated = []
+            for ep in data[:7]:
+                if not isinstance(ep, dict):
+                    continue
+                
+                validated.append({
+                    "method": ep.get("method", "GET").upper(),
+                    "path": ep.get("path", "/api/v1/resource"),
+                    "description": str(ep.get("description", ""))[:500],
+                    "request_schema": ep.get("request_schema"),
+                    "response_schema": ep.get("response_schema", {}),
+                    "authentication_required": bool(ep.get("authentication_required", True)),
+                    "rate_limit": ep.get("rate_limit", "100/min")
+                })
+            
+            return validated
+        except:
+            return []
+    
+    def _extract_json(self, text: str) -> Optional[str]:
+        """Estrai JSON"""
+        match = re.search(r'```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```', text, re.DOTALL)
+        if match:
+            return match.group(1)
+        match = re.search(r'(\[.*\]|\{.*\})', text, re.DOTALL)
+        return match.group(1) if match else text.strip()
+    
+    def _fallback_endpoints(self, subdomain: Subdomain) -> list[dict]:
+        """Template endpoints di fallback"""
         return [
             {
                 "method": "GET",
@@ -323,16 +316,16 @@ Return ONLY a JSON array:
                 "request_schema": None,
                 "response_schema": {"status": "string", "timestamp": "string"},
                 "authentication_required": False,
-                "rate_limit": None,
+                "rate_limit": None
             },
             {
                 "method": "POST",
                 "path": f"/api/v1/{subdomain.name}",
                 "description": f"Create new {subdomain.name} entity",
                 "request_schema": {"data": "object"},
-                "response_schema": {"id": "string", "status": "string", "created_at": "string"},
+                "response_schema": {"id": "string", "status": "string"},
                 "authentication_required": True,
-                "rate_limit": "100/min",
+                "rate_limit": "100/min"
             },
             {
                 "method": "GET",
@@ -341,51 +334,253 @@ Return ONLY a JSON array:
                 "request_schema": None,
                 "response_schema": {"id": "string", "data": "object"},
                 "authentication_required": True,
-                "rate_limit": "1000/min",
+                "rate_limit": "1000/min"
             }
         ]
 
-    def _generate_nfr_template(self, service_name: str) -> list[dict]:
-        """Non-functional requirements template"""
+
+class DomainEventsGenerator(dspy.Module):
+    """Module per generazione eventi di dominio"""
+    
+    def __init__(self):
+        super().__init__()
+        self.generate = dspy.ChainOfThought(GenerateDomainEvents)
+    
+    def forward(self, subdomain: Subdomain) -> list[dict]:
+        """Genera eventi domain-driven"""
+        try:
+            patterns = ", ".join([p.value for p in subdomain.communication_patterns])
+            responsibilities = "\n- " + "\n- ".join(subdomain.responsibilities[:3])
+            
+            result = self.generate(
+                service_name=subdomain.name,
+                responsibilities=responsibilities,
+                communication_patterns=patterns or "async_event"
+            )
+            
+            events = self._parse_events(result.events_json)
+            return events if events else []
+            
+        except Exception as e:
+            print(f"⚠️ Events generation failed: {e}")
+            return []
+    
+    def _parse_events(self, json_str: str) -> list[dict]:
+        """Parse events JSON"""
+        json_clean = self._extract_json(json_str)
+        if not json_clean:
+            return []
+        
+        try:
+            data = json.loads(json_clean)
+            if not isinstance(data, list):
+                data = [data]
+            
+            validated = []
+            for ev in data[:5]:
+                if not isinstance(ev, dict):
+                    continue
+                
+                validated.append({
+                    "event_name": ev.get("event_name", "DomainEvent"),
+                    "event_type": ev.get("event_type", "domain"),
+                    "payload_schema": ev.get("payload_schema", {}),
+                    "trigger_conditions": ev.get("trigger_conditions", []),
+                    "consumers": ev.get("consumers", [])
+                })
+            
+            return validated
+        except:
+            return []
+    
+    def _extract_json(self, text: str) -> Optional[str]:
+        """Estrai JSON"""
+        match = re.search(r'```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```', text, re.DOTALL)
+        if match:
+            return match.group(1)
+        match = re.search(r'(\[.*\]|\{.*\})', text, re.DOTALL)
+        return match.group(1) if match else text.strip()
+
+
+class NonFunctionalRequirementsGenerator(dspy.Module):
+    """Module per generazione NFRs"""
+    
+    def __init__(self):
+        super().__init__()
+        self.generate = dspy.ChainOfThought(GenerateNonFunctionalRequirements)
+    
+    def forward(self, subdomain: Subdomain) -> list[dict]:
+        """Genera requisiti non funzionali"""
+        try:
+            result = self.generate(
+                service_name=subdomain.name,
+                service_type=subdomain.type.value
+            )
+            
+            nfrs = self._parse_nfrs(result.nfr_json)
+            return nfrs if nfrs else self._fallback_nfrs(subdomain.name)
+            
+        except Exception as e:
+            print(f"⚠️ NFRs generation failed: {e}")
+            return self._fallback_nfrs(subdomain.name)
+    
+    def _parse_nfrs(self, json_str: str) -> list[dict]:
+        """Parse NFRs JSON"""
+        json_clean = self._extract_json(json_str)
+        if not json_clean:
+            return []
+        
+        try:
+            data = json.loads(json_clean)
+            if not isinstance(data, list):
+                data = [data]
+            
+            validated = []
+            for nfr in data[:5]:
+                if not isinstance(nfr, dict):
+                    continue
+                
+                validated.append({
+                    "id": nfr.get("id", f"NFR-{len(validated)+1:03d}"),
+                    "type": "non_functional",
+                    "priority": nfr.get("priority", "medium"),
+                    "title": str(nfr.get("title", ""))[:200],
+                    "description": str(nfr.get("description", ""))[:1000],
+                    "acceptance_criteria": nfr.get("acceptance_criteria", []),
+                    "related_requirements": []
+                })
+            
+            return validated
+        except:
+            return []
+    
+    def _extract_json(self, text: str) -> Optional[str]:
+        """Estrai JSON"""
+        match = re.search(r'```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```', text, re.DOTALL)
+        if match:
+            return match.group(1)
+        match = re.search(r'(\[.*\]|\{.*\})', text, re.DOTALL)
+        return match.group(1) if match else text.strip()
+    
+    def _fallback_nfrs(self, service_name: str) -> list[dict]:
+        """Template NFRs di fallback"""
         return [
             {
                 "id": "NFR-001",
                 "type": "non_functional",
                 "priority": "high",
                 "title": "Response Time SLA",
-                "description": f"{service_name} must maintain low latency for all operations",
+                "description": f"{service_name} must maintain low latency",
                 "acceptance_criteria": [
                     "P95 latency < 200ms for read operations",
-                    "P99 latency < 500ms for all operations"
+                    "P99 latency < 500ms for write operations"
                 ],
-                "related_requirements": [],
+                "related_requirements": []
             },
             {
                 "id": "NFR-002",
                 "type": "non_functional",
                 "priority": "high",
                 "title": "Service Availability",
-                "description": "Service must maintain high availability",
+                "description": "High availability requirement",
                 "acceptance_criteria": [
                     "99.9% uptime SLA",
-                    "Max unplanned downtime: 43 minutes/month"
+                    "Max 43 minutes downtime/month"
                 ],
-                "related_requirements": [],
-            },
-            {
-                "id": "NFR-003",
-                "type": "non_functional",
-                "priority": "medium",
-                "title": "Scalability",
-                "description": "Service must scale horizontally",
-                "acceptance_criteria": [
-                    "Support 10x traffic increase with horizontal scaling",
-                    "Stateless service design"
-                ],
-                "related_requirements": [],
+                "related_requirements": []
             }
         ]
 
+
+# ============================================================================
+# MAIN PIPELINE - Orchestrazione DSPy modules
+# ============================================================================
+
+class SpecificationGeneratorPipeline(dspy.Module):
+    """Pipeline completa DSPy per generazione specifiche"""
+    
+    def __init__(self):
+        super().__init__()
+        
+        llm_engine.initialize()
+        
+        self.req_generator = FunctionalRequirementsGenerator()
+        self.api_generator = APIEndpointsGenerator()
+        self.events_generator = DomainEventsGenerator()
+        self.nfr_generator = NonFunctionalRequirementsGenerator()
+    
+    def forward(
+        self,
+        subdomain: Subdomain,
+        technical_stack: dict[str, str],
+        global_constraints: dict[str, str]
+    ) -> dict[str, Any]:
+        """Esegue pipeline completa per un subdomain"""
+        service_name = subdomain.name
+        print(f"\n{'='*60}")
+        print(f"🔄 Processing: {service_name}")
+        print(f"{'='*60}")
+        
+        print(f"📋 [1/4] Generating functional requirements...")
+        functional_reqs = self.req_generator(subdomain)
+        print(f"   ✅ Generated {len(functional_reqs)} requirements")
+        
+        print(f"🔌 [2/4] Generating API endpoints...")
+        api_endpoints = self.api_generator(subdomain, functional_reqs)
+        print(f"   ✅ Generated {len(api_endpoints)} endpoints")
+        
+        print(f"📡 [3/4] Generating domain events...")
+        events_published = self.events_generator(subdomain)
+        print(f"   ✅ Generated {len(events_published)} events")
+        
+        print(f"⚡ [4/4] Generating NFRs...")
+        nfr_reqs = self.nfr_generator(subdomain)
+        print(f"   ✅ Generated {len(nfr_reqs)} NFRs")
+        
+        return {
+            "service_name": service_name,
+            "version": "1.0.0",
+            "description": subdomain.description,
+            "bounded_context": subdomain.bounded_context,
+            "functional_requirements": functional_reqs,
+            "non_functional_requirements": nfr_reqs,
+            "events_published": events_published,
+            "events_subscribed": [],
+            "api_endpoints": api_endpoints,
+            "message_queues": [],
+            "dependencies": self._convert_dependencies(subdomain),
+            "technology_stack": technical_stack or {
+                "language": "Python",
+                "framework": "FastAPI",
+                "database": "PostgreSQL",
+                "cache": "Redis",
+                "message_broker": "RabbitMQ"
+            },
+            "infrastructure_requirements": self._generate_infra_template(),
+            "monitoring_requirements": [
+                "Prometheus metrics endpoint /metrics",
+                "Health check endpoint /health",
+                "Structured JSON logging",
+                "Distributed tracing with Jaeger",
+                "Error rate and latency monitoring"
+            ],
+            "generated_at": datetime.utcnow(),
+            "generated_by": "agent3-spec-generator-dspy"
+        }
+    
+    def _convert_dependencies(self, subdomain: Subdomain) -> list[dict]:
+        """Convert dependencies da input schema"""
+        return [
+            {
+                "service_name": dep,
+                "dependency_type": "service",
+                "communication_method": "rest",
+                "criticality": "high",
+                "fallback_strategy": "circuit_breaker"
+            }
+            for dep in (subdomain.dependencies or [])
+        ]
+    
     def _generate_infra_template(self) -> dict[str, Any]:
         """Infrastructure requirements template"""
         return {
@@ -393,94 +588,242 @@ Return ONLY a JSON array:
                 "type": "PostgreSQL",
                 "version": "15+",
                 "replicas": 2,
-                "backup_strategy": "daily"
+                "backup_strategy": "daily",
+                "connection_pool": 20
             },
             "cache": {
                 "type": "Redis",
                 "version": "7+",
                 "ttl": "1h",
-                "persistence": "AOF"
+                "persistence": "AOF",
+                "max_memory": "2GB"
             },
             "message_queue": {
                 "type": "RabbitMQ",
                 "version": "3.12+",
                 "durable": True,
-                "prefetch_count": 10
+                "prefetch_count": 10,
+                "max_priority": 10
+            },
+            "compute": {
+                "cpu": "2 cores",
+                "memory": "4GB",
+                "storage": "20GB",
+                "auto_scaling": True
             }
         }
 
-    def _convert_dependencies(self, subdomain: Subdomain) -> list[dict]:
-        """Convert dependencies from input schema"""
-        return [
-            {
-                "service_name": dep,
-                "dependency_type": "service",
-                "communication_method": "rest",
-                "criticality": "high",
-                "fallback_strategy": "circuit_breaker",
-            }
-            for dep in (subdomain.dependencies or [])
-        ]
 
+# ============================================================================
+# ORCHESTRATOR - Entry point con SSE streaming
+# ============================================================================
 
 class SpecificationOrchestrator:
-    """Orchestrator con error handling robusto"""
-
+    """Orchestrator con supporto SSE streaming"""
+    
     def __init__(self):
         self.pipeline = SpecificationGeneratorPipeline()
-
+    
     def generate_all_specs(self, architecture_input: ArchitectureInput) -> dict[str, Any]:
-        """
-        Generate specs con progress tracking e fallback garantito
-        """
+        """Generazione sincrona (legacy endpoint)"""
         microservices = []
         total = len(architecture_input.subdomains)
-
+        
+        print(f"\n🚀 Starting generation for {total} subdomains...")
+        
         for idx, subdomain in enumerate(architecture_input.subdomains, 1):
-            print(f"\n{'='*60}")
-            print(f"Processing {idx}/{total}: {subdomain.name}")
-            print(f"{'='*60}")
+            print(f"\n{'#'*60}")
+            print(f"# Subdomain {idx}/{total}: {subdomain.name}")
+            print(f"{'#'*60}")
             
             try:
-                spec = self.pipeline.forward(
+                spec = self.pipeline(
                     subdomain=subdomain,
                     technical_stack=architecture_input.technical_stack or {},
-                    global_constraints=architecture_input.global_constraints or {},
+                    global_constraints=architecture_input.global_constraints or {}
                 )
                 microservices.append(spec)
-                print(f"✅ {subdomain.name} completed successfully")
+                print(f"✅ {subdomain.name} completed successfully\n")
                 
             except Exception as e:
                 print(f"❌ {subdomain.name} failed: {e}")
-                # Anche in caso di errore, generiamo spec minimale
                 microservices.append(self._generate_minimal_spec(subdomain))
-                print(f"⚠️  Using fallback spec for {subdomain.name}")
-
+                print(f"⚠️ Using minimal fallback spec for {subdomain.name}\n")
+        
         return {
             "project_name": architecture_input.project_name,
             "project_description": architecture_input.project_description,
             "specification_version": "1.0.0",
             "microservices": microservices,
             "inter_service_communication": self._build_communication_map(architecture_input),
-            "shared_infrastructure": {
-                "api_gateway": {"type": "Kong", "version": "3.x"},
-                "message_broker": {"type": "RabbitMQ", "version": "3.12"},
-                "service_mesh": {"type": "Istio", "version": "1.20"},
-                "monitoring": {"type": "Prometheus + Grafana"},
-                "logging": {"type": "ELK Stack"},
-                "tracing": {"type": "Jaeger"}
-            },
+            "shared_infrastructure": self._get_shared_infrastructure(),
             "generated_at": datetime.utcnow(),
-            "agent_version": "1.0.0",
+            "agent_version": "1.0.0"
         }
-
+    
+    async def generate_all_specs_streaming(
+        self, 
+        architecture_input: ArchitectureInput
+    ) -> AsyncGenerator[dict, None]:
+        """
+        Generazione con SSE streaming
+        Yields eventi SSE per ogni step del processo
+        """
+        microservices = []
+        total = len(architecture_input.subdomains)
+        
+        for idx, subdomain in enumerate(architecture_input.subdomains, 1):
+            subdomain_name = subdomain.name
+            
+            # Event: subdomain started
+            yield {
+                "event": "progress",
+                "data": json.dumps({
+                    "subdomain": subdomain_name,
+                    "index": idx,
+                    "total": total,
+                    "step": "started",
+                    "message": f"Starting generation for {subdomain_name}"
+                })
+            }
+            
+            try:
+                # Event: requirements generation
+                yield {
+                    "event": "progress",
+                    "data": json.dumps({
+                        "subdomain": subdomain_name,
+                        "step": "requirements",
+                        "message": "Generating functional requirements..."
+                    })
+                }
+                
+                # Event: api generation
+                yield {
+                    "event": "progress",
+                    "data": json.dumps({
+                        "subdomain": subdomain_name,
+                        "step": "api",
+                        "message": "Generating API endpoints..."
+                    })
+                }
+                
+                # Event: events generation
+                yield {
+                    "event": "progress",
+                    "data": json.dumps({
+                        "subdomain": subdomain_name,
+                        "step": "events",
+                        "message": "Generating domain events..."
+                    })
+                }
+                
+                # Event: nfr generation
+                yield {
+                    "event": "progress",
+                    "data": json.dumps({
+                        "subdomain": subdomain_name,
+                        "step": "nfr",
+                        "message": "Generating non-functional requirements..."
+                    })
+                }
+                
+                # Execute pipeline
+                spec = self.pipeline(
+                    subdomain=subdomain,
+                    technical_stack=architecture_input.technical_stack or {},
+                    global_constraints=architecture_input.global_constraints or {}
+                )
+                
+                microservices.append(spec)
+                
+                # Event: microservice completed
+                yield {
+                    "event": "microservice",
+                    "data": json.dumps(spec, default=str)
+                }
+                
+                # Event: subdomain completed
+                yield {
+                    "event": "progress",
+                    "data": json.dumps({
+                        "subdomain": subdomain_name,
+                        "step": "completed",
+                        "message": f"✅ {subdomain_name} completed successfully",
+                        "progress_percent": int((idx / total) * 100)
+                    })
+                }
+                
+            except Exception as e:
+                # Event: error
+                yield {
+                    "event": "progress",
+                    "data": json.dumps({
+                        "subdomain": subdomain_name,
+                        "step": "error",
+                        "message": f"Error: {str(e)}",
+                        "using_fallback": True
+                    })
+                }
+                
+                # Use fallback
+                minimal_spec = self._generate_minimal_spec(subdomain)
+                microservices.append(minimal_spec)
+                
+                yield {
+                    "event": "microservice",
+                    "data": json.dumps(minimal_spec, default=str)
+                }
+        
+        # Final complete event
+        final_output = {
+            "project_name": architecture_input.project_name,
+            "project_description": architecture_input.project_description,
+            "specification_version": "1.0.0",
+            "microservices": microservices,
+            "inter_service_communication": self._build_communication_map(architecture_input),
+            "shared_infrastructure": self._get_shared_infrastructure(),
+            "generated_at": datetime.utcnow(),
+            "agent_version": "1.0.0"
+        }
+        
+        yield {
+            "event": "complete",
+            "data": json.dumps(final_output, default=str)
+        }
+    
     def _build_communication_map(self, architecture_input: ArchitectureInput) -> dict[str, list[str]]:
-        """Build service communication map"""
+        """Costruisce mappa comunicazione inter-service"""
         comm_map = {}
         for subdomain in architecture_input.subdomains:
             comm_map[subdomain.name] = subdomain.dependencies or []
         return comm_map
-
+    
+    def _get_shared_infrastructure(self) -> dict[str, Any]:
+        """Shared infrastructure template"""
+        return {
+            "api_gateway": {
+                "type": "Kong",
+                "version": "3.x",
+                "features": ["rate_limiting", "authentication", "logging"]
+            },
+            "message_broker": {
+                "type": "RabbitMQ",
+                "version": "3.12",
+                "clustering": True
+            },
+            "service_mesh": {
+                "type": "Istio",
+                "version": "1.20",
+                "features": ["traffic_management", "security", "observability"]
+            },
+            "monitoring": {
+                "metrics": "Prometheus + Grafana",
+                "logging": "ELK Stack",
+                "tracing": "Jaeger"
+            }
+        }
+    
     def _generate_minimal_spec(self, subdomain: Subdomain) -> dict:
         """Spec minimale garantito quando tutto fallisce"""
         return {
@@ -496,7 +839,7 @@ class SpecificationOrchestrator:
                     "title": f"Implement {subdomain.name} core functionality",
                     "description": f"Implement the core business logic for {subdomain.name}",
                     "acceptance_criteria": ["Service is operational"],
-                    "related_requirements": [],
+                    "related_requirements": []
                 }
             ],
             "non_functional_requirements": [],
@@ -508,5 +851,5 @@ class SpecificationOrchestrator:
             "infrastructure_requirements": {},
             "monitoring_requirements": ["Basic health check"],
             "generated_at": datetime.utcnow(),
-            "generated_by": "agent3-fallback",
+            "generated_by": "agent3-fallback"
         }

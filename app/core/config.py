@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     # LLM Settings
     ollama_base_url: str = "http://host.docker.internal:11434"
-    ollama_model: str = "llama3"
+    ollama_model: str = "llama3.2:1b"
 
     # API Settings
     api_host: str = "0.0.0.0"

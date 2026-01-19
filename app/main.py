@@ -1,12 +1,16 @@
 """
-FastAPI Server - VERSIONE CORRETTA con timeout HTTP
+FastAPI Server - SSE Streaming Version
+Supports real-time progress updates during specification generation
 """
 
 import logging
+import json
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from sse_starlette.sse import EventSourceResponse
 
 from app.core.config import settings
 from app.models.input_schema import ArchitectureInput
@@ -24,7 +28,6 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
-    # Startup
     logger.info("🚀 Initializing Agent 3 - Functional Specification Generator")
     logger.info(f"📍 Ollama URL: {settings.ollama_base_url}")
     logger.info(f"🤖 Model: {settings.ollama_model}")
@@ -37,21 +40,19 @@ async def lifespan(app: FastAPI):
             if response.status_code == 200:
                 logger.info("✅ Ollama connection successful")
             else:
-                logger.warning(f"⚠️  Ollama responded with status {response.status_code}")
+                logger.warning(f"⚠️ Ollama responded with status {response.status_code}")
     except Exception as e:
         logger.error(f"❌ Ollama connection failed: {e}")
-        logger.warning("⚠️  Service will start but generation may fail")
+        logger.warning("⚠️ Service will start but generation may fail")
 
     yield
-
-    # Shutdown
     logger.info("👋 Shutting down Agent 3")
 
 
 # Initialize FastAPI
 app = FastAPI(
     title="Agent 3 - Functional Specification Generator",
-    description="Generates detailed functional specifications from architectural designs",
+    description="Generates detailed functional specifications with SSE streaming",
     version=settings.service_version,
     lifespan=lifespan,
 )
@@ -76,6 +77,7 @@ async def root():
         "service": settings.service_name,
         "version": settings.service_version,
         "status": "operational",
+        "streaming_enabled": True,
         "ollama_url": settings.ollama_base_url,
         "ollama_model": settings.ollama_model,
     }
@@ -83,7 +85,7 @@ async def root():
 
 @app.get("/health", tags=["Health"])
 async def health_check():
-    """Health check endpoint con verifica Ollama"""
+    """Health check endpoint with Ollama verification"""
     try:
         import httpx
         with httpx.Client(timeout=5) as client:
@@ -101,6 +103,69 @@ async def health_check():
     }
 
 
+@app.post("/generate/stream", tags=["Generation"])
+async def generate_specifications_stream(architecture: ArchitectureInput):
+    """
+    Generate functional specifications with SSE streaming.
+    
+    Returns a text/event-stream with real-time progress updates:
+    - Event: progress → {"subdomain": "name", "step": "...", "status": "..."}
+    - Event: microservice → {...complete microservice spec...}
+    - Event: complete → {...final output...}
+    - Event: error → {"error": "message"}
+    
+    Args:
+        architecture: Validated architecture input from Agent 2
+        
+    Returns:
+        SSE stream with generation progress and results
+    """
+    
+    async def event_generator():
+        """SSE event generator"""
+        try:
+            logger.info(f"📦 Starting SSE stream for: {architecture.project_name}")
+            logger.info(f"🔧 Processing {len(architecture.subdomains)} subdomains")
+            
+            # Send initial event
+            yield {
+                "event": "start",
+                "data": json.dumps({
+                    "project_name": architecture.project_name,
+                    "total_subdomains": len(architecture.subdomains),
+                    "message": "Generation started"
+                })
+            }
+            
+            # Generate specifications with streaming callbacks
+            async for event in orchestrator.generate_all_specs_streaming(architecture):
+                yield event
+            
+            logger.info("✅ SSE stream completed successfully")
+            
+        except ValueError as e:
+            logger.error(f"❌ Validation error: {e}")
+            yield {
+                "event": "error",
+                "data": json.dumps({
+                    "error": "validation_error",
+                    "message": str(e)
+                })
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Generation failed: {e}", exc_info=True)
+            yield {
+                "event": "error",
+                "data": json.dumps({
+                    "error": "internal_error",
+                    "message": str(e)
+                })
+            }
+    
+    return EventSourceResponse(event_generator())
+
+
 @app.post(
     "/generate",
     response_model=FunctionalSpecificationOutput,
@@ -109,11 +174,10 @@ async def health_check():
 )
 async def generate_specifications(architecture: ArchitectureInput):
     """
-    Generate functional specifications from architecture.
+    Generate functional specifications (synchronous, legacy endpoint).
     
-    TIMEOUT: Max 5 minutes per subdomain
-    FALLBACK: Always returns valid specs even if LLM fails
-
+    For real-time progress, use /generate/stream instead.
+    
     Args:
         architecture: Validated architecture input from Agent 2
 
@@ -124,7 +188,7 @@ async def generate_specifications(architecture: ArchitectureInput):
         logger.info(f"📦 Generating specs for project: {architecture.project_name}")
         logger.info(f"🔧 Processing {len(architecture.subdomains)} subdomains")
 
-        # Generate specifications
+        # Generate specifications (blocking)
         result = orchestrator.generate_all_specs(architecture)
 
         # Validate output schema
@@ -168,5 +232,5 @@ if __name__ == "__main__":
         port=settings.api_port,
         reload=settings.api_reload,
         log_level=settings.api_log_level,
-        timeout_keep_alive=600,  # 10 minuti
+        timeout_keep_alive=600,
     )
