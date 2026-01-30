@@ -11,8 +11,8 @@ class Settings(BaseSettings):
     """Application Configuration"""
 
     # LLM Settings
-    ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "llama3.2:1b"
+    ollama_base_url: str = "http://host.docker.internal:11434"
+    ollama_model: str = "llama3.2:3b"
 
     # API Settings
     api_host: str = "0.0.0.0"
