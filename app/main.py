@@ -1,6 +1,6 @@
 """
 FastAPI Server - SSE Streaming Version
-Supports real-time progress updates during specification generation
+Streaming-only architecture to prevent timeouts
 """
 
 import logging
@@ -78,6 +78,7 @@ async def root():
         "version": settings.service_version,
         "status": "operational",
         "streaming_enabled": True,
+        "architecture": "streaming-only",
         "ollama_url": settings.ollama_base_url,
         "ollama_model": settings.ollama_model,
     }
@@ -164,51 +165,6 @@ async def generate_specifications_stream(architecture: ArchitectureInput):
             }
     
     return EventSourceResponse(event_generator())
-
-
-@app.post(
-    "/generate",
-    response_model=FunctionalSpecificationOutput,
-    status_code=status.HTTP_200_OK,
-    tags=["Generation"],
-)
-async def generate_specifications(architecture: ArchitectureInput):
-    """
-    Generate functional specifications (synchronous, legacy endpoint).
-    
-    For real-time progress, use /generate/stream instead.
-    
-    Args:
-        architecture: Validated architecture input from Agent 2
-
-    Returns:
-        Complete functional specification for all microservices
-    """
-    try:
-        logger.info(f"📦 Generating specs for project: {architecture.project_name}")
-        logger.info(f"🔧 Processing {len(architecture.subdomains)} subdomains")
-
-        # Generate specifications (blocking)
-        result = orchestrator.generate_all_specs(architecture)
-
-        # Validate output schema
-        output = FunctionalSpecificationOutput(**result)
-
-        logger.info(f"✅ Successfully generated {len(output.microservices)} microservice specs")
-        return output
-
-    except ValueError as e:
-        logger.error(f"❌ Validation error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, 
-            detail=f"Invalid input: {str(e)}"
-        )
-    except Exception as e:
-        logger.error(f"❌ Generation failed: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error: {str(e)}",
-        )
 
 
 @app.get("/schemas/input", tags=["Documentation"])

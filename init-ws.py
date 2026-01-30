@@ -205,7 +205,7 @@ def create_env_file() -> bool:
 
 # Alternative: Ollama Local
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=mixtral:8x7b
+OLLAMA_MODEL=llama3.2:3b
 
 # API Configuration
 API_HOST=0.0.0.0

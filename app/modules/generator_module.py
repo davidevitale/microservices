@@ -1,6 +1,6 @@
 """
 generator_module.py - DSPy-Based Specification Generator
-UPDATED: Added SSE streaming support in orchestrator
+REFACTORED: Removed redundancy, added shared utilities, streaming-only architecture
 """
 
 import json
@@ -12,11 +12,115 @@ import dspy
 from pydantic import ValidationError
 
 from app.models.input_schema import ArchitectureInput, Subdomain
-from app.core.llm_config import llm_engine
+from app.core.llm_config import initialize_llm_engine
 
 
 # ============================================================================
-# DSPy SIGNATURES - Definizione contratti input/output
+# GLOBAL CONSTANTS - Infrastructure and Monitoring Templates
+# ============================================================================
+
+SHARED_INFRASTRUCTURE = {
+    "api_gateway": {
+        "type": "Kong",
+        "version": "3.x",
+        "features": ["rate_limiting", "authentication", "logging"]
+    },
+    "message_broker": {
+        "type": "RabbitMQ",
+        "version": "3.12",
+        "clustering": True
+    },
+    "service_mesh": {
+        "type": "Istio",
+        "version": "1.20",
+        "features": ["traffic_management", "security", "observability"]
+    },
+    "monitoring": {
+        "metrics": "Prometheus + Grafana",
+        "logging": "ELK Stack",
+        "tracing": "Jaeger"
+    }
+}
+
+INFRASTRUCTURE_TEMPLATE = {
+    "database": {
+        "type": "PostgreSQL",
+        "version": "15+",
+        "replicas": 2,
+        "backup_strategy": "daily",
+        "connection_pool": 20
+    },
+    "cache": {
+        "type": "Redis",
+        "version": "7+",
+        "ttl": "1h",
+        "persistence": "AOF",
+        "max_memory": "2GB"
+    },
+    "message_queue": {
+        "type": "RabbitMQ",
+        "version": "3.12+",
+        "durable": True,
+        "prefetch_count": 10,
+        "max_priority": 10
+    },
+    "compute": {
+        "cpu": "2 cores",
+        "memory": "4GB",
+        "storage": "20GB",
+        "auto_scaling": True
+    }
+}
+
+MONITORING_REQUIREMENTS = [
+    "Prometheus metrics endpoint /metrics",
+    "Health check endpoint /health",
+    "Structured JSON logging",
+    "Distributed tracing with Jaeger",
+    "Error rate and latency monitoring"
+]
+
+DEFAULT_TECH_STACK = {
+    "language": "Python",
+    "framework": "FastAPI",
+    "database": "PostgreSQL",
+    "cache": "Redis",
+    "message_broker": "RabbitMQ"
+}
+
+
+# ============================================================================
+# SHARED UTILITY FUNCTIONS - DRY Compliance
+# ============================================================================
+
+def extract_json_from_text(text: str) -> Optional[str]:
+    """
+    Extract JSON from text that may contain markdown code blocks or other noise.
+    
+    This utility function removes redundancy across all generator classes.
+    
+    Args:
+        text: Raw text that may contain JSON
+        
+    Returns:
+        Extracted JSON string or None if no JSON found
+    """
+    # Try to match JSON inside markdown code blocks
+    match = re.search(r'```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```', text, re.DOTALL)
+    if match:
+        return match.group(1)
+    
+    # Try to match raw JSON array or object
+    match = re.search(r'(\[.*\]|\{.*\})', text, re.DOTALL)
+    if match:
+        return match.group(1)
+    
+    # Return cleaned text as fallback
+    return text.strip()
+
+
+# ============================================================================
+# DSPy SIGNATURES - Input/Output Contracts
 # ============================================================================
 
 class GenerateFunctionalRequirements(dspy.Signature):
@@ -111,18 +215,18 @@ Genera 3-4 NFRs. Focus: performance, sicurezza, scalabilità, disponibilità."""
 
 
 # ============================================================================
-# DSPy MODULES - Componenti riusabili con Chain-of-Thought
+# DSPy MODULES - Reusable Components with Chain-of-Thought
 # ============================================================================
 
 class FunctionalRequirementsGenerator(dspy.Module):
-    """Module per generazione requisiti funzionali con CoT"""
+    """Module for generating functional requirements with CoT"""
     
     def __init__(self):
         super().__init__()
         self.generate = dspy.ChainOfThought(GenerateFunctionalRequirements)
     
     def forward(self, subdomain: Subdomain) -> list[dict]:
-        """Genera requisiti funzionali con reasoning step-by-step"""
+        """Generate functional requirements with step-by-step reasoning"""
         try:
             responsibilities_str = "\n- " + "\n- ".join(subdomain.responsibilities[:5])
             
@@ -145,8 +249,8 @@ class FunctionalRequirementsGenerator(dspy.Module):
             return self._fallback_requirements(subdomain)
     
     def _parse_and_validate(self, json_str: str, service_name: str) -> list[dict]:
-        """Parse JSON con validazione robusta"""
-        json_clean = self._extract_json(json_str)
+        """Parse JSON with robust validation"""
+        json_clean = extract_json_from_text(json_str)
         
         if not json_clean:
             return []
@@ -178,20 +282,8 @@ class FunctionalRequirementsGenerator(dspy.Module):
         
         return validated
     
-    def _extract_json(self, text: str) -> Optional[str]:
-        """Estrai JSON da testo con markdown or noise"""
-        match = re.search(r'```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```', text, re.DOTALL)
-        if match:
-            return match.group(1)
-        
-        match = re.search(r'(\[.*\]|\{.*\})', text, re.DOTALL)
-        if match:
-            return match.group(1)
-        
-        return text.strip()
-    
     def _normalize_priority(self, priority: str) -> str:
-        """Normalizza priority values"""
+        """Normalize priority values"""
         p = str(priority).lower()
         if "critical" in p:
             return "critical"
@@ -202,7 +294,7 @@ class FunctionalRequirementsGenerator(dspy.Module):
         return "medium"
     
     def _normalize_criteria(self, criteria: Any) -> list[str]:
-        """Normalizza acceptance criteria"""
+        """Normalize acceptance criteria"""
         if isinstance(criteria, list):
             return [str(c)[:200] for c in criteria if c][:5]
         elif isinstance(criteria, str):
@@ -210,7 +302,7 @@ class FunctionalRequirementsGenerator(dspy.Module):
         return ["Acceptance criteria to be defined"]
     
     def _fallback_requirements(self, subdomain: Subdomain) -> list[dict]:
-        """Fallback template quando generazione fallisce"""
+        """Fallback template when generation fails"""
         return [
             {
                 "id": "FR-001",
@@ -242,14 +334,14 @@ class FunctionalRequirementsGenerator(dspy.Module):
 
 
 class APIEndpointsGenerator(dspy.Module):
-    """Module per generazione API endpoints"""
+    """Module for generating API endpoints"""
     
     def __init__(self):
         super().__init__()
         self.generate = dspy.ChainOfThought(GenerateAPIEndpoints)
     
     def forward(self, subdomain: Subdomain, requirements: list[dict]) -> list[dict]:
-        """Genera REST API endpoints basati su requirements"""
+        """Generate REST API endpoints based on requirements"""
         try:
             req_summary = "\n".join([
                 f"- {req['id']}: {req['title']}"
@@ -270,7 +362,7 @@ class APIEndpointsGenerator(dspy.Module):
     
     def _parse_endpoints(self, json_str: str) -> list[dict]:
         """Parse endpoints JSON"""
-        json_clean = self._extract_json(json_str)
+        json_clean = extract_json_from_text(json_str)
         if not json_clean:
             return []
         
@@ -298,16 +390,8 @@ class APIEndpointsGenerator(dspy.Module):
         except:
             return []
     
-    def _extract_json(self, text: str) -> Optional[str]:
-        """Estrai JSON"""
-        match = re.search(r'```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```', text, re.DOTALL)
-        if match:
-            return match.group(1)
-        match = re.search(r'(\[.*\]|\{.*\})', text, re.DOTALL)
-        return match.group(1) if match else text.strip()
-    
     def _fallback_endpoints(self, subdomain: Subdomain) -> list[dict]:
-        """Template endpoints di fallback"""
+        """Fallback endpoints template"""
         return [
             {
                 "method": "GET",
@@ -340,14 +424,14 @@ class APIEndpointsGenerator(dspy.Module):
 
 
 class DomainEventsGenerator(dspy.Module):
-    """Module per generazione eventi di dominio"""
+    """Module for generating domain events"""
     
     def __init__(self):
         super().__init__()
         self.generate = dspy.ChainOfThought(GenerateDomainEvents)
     
     def forward(self, subdomain: Subdomain) -> list[dict]:
-        """Genera eventi domain-driven"""
+        """Generate domain-driven events"""
         try:
             patterns = ", ".join([p.value for p in subdomain.communication_patterns])
             responsibilities = "\n- " + "\n- ".join(subdomain.responsibilities[:3])
@@ -367,7 +451,7 @@ class DomainEventsGenerator(dspy.Module):
     
     def _parse_events(self, json_str: str) -> list[dict]:
         """Parse events JSON"""
-        json_clean = self._extract_json(json_str)
+        json_clean = extract_json_from_text(json_str)
         if not json_clean:
             return []
         
@@ -392,25 +476,17 @@ class DomainEventsGenerator(dspy.Module):
             return validated
         except:
             return []
-    
-    def _extract_json(self, text: str) -> Optional[str]:
-        """Estrai JSON"""
-        match = re.search(r'```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```', text, re.DOTALL)
-        if match:
-            return match.group(1)
-        match = re.search(r'(\[.*\]|\{.*\})', text, re.DOTALL)
-        return match.group(1) if match else text.strip()
 
 
 class NonFunctionalRequirementsGenerator(dspy.Module):
-    """Module per generazione NFRs"""
+    """Module for generating NFRs"""
     
     def __init__(self):
         super().__init__()
         self.generate = dspy.ChainOfThought(GenerateNonFunctionalRequirements)
     
     def forward(self, subdomain: Subdomain) -> list[dict]:
-        """Genera requisiti non funzionali"""
+        """Generate non-functional requirements"""
         try:
             result = self.generate(
                 service_name=subdomain.name,
@@ -426,7 +502,7 @@ class NonFunctionalRequirementsGenerator(dspy.Module):
     
     def _parse_nfrs(self, json_str: str) -> list[dict]:
         """Parse NFRs JSON"""
-        json_clean = self._extract_json(json_str)
+        json_clean = extract_json_from_text(json_str)
         if not json_clean:
             return []
         
@@ -454,16 +530,8 @@ class NonFunctionalRequirementsGenerator(dspy.Module):
         except:
             return []
     
-    def _extract_json(self, text: str) -> Optional[str]:
-        """Estrai JSON"""
-        match = re.search(r'```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```', text, re.DOTALL)
-        if match:
-            return match.group(1)
-        match = re.search(r'(\[.*\]|\{.*\})', text, re.DOTALL)
-        return match.group(1) if match else text.strip()
-    
     def _fallback_nfrs(self, service_name: str) -> list[dict]:
-        """Template NFRs di fallback"""
+        """Fallback NFRs template"""
         return [
             {
                 "id": "NFR-001",
@@ -493,16 +561,17 @@ class NonFunctionalRequirementsGenerator(dspy.Module):
 
 
 # ============================================================================
-# MAIN PIPELINE - Orchestrazione DSPy modules
+# MAIN PIPELINE - DSPy Modules Orchestration
 # ============================================================================
 
 class SpecificationGeneratorPipeline(dspy.Module):
-    """Pipeline completa DSPy per generazione specifiche"""
+    """Complete DSPy pipeline for specification generation"""
     
     def __init__(self):
         super().__init__()
         
-        llm_engine.initialize()
+        # Initialize LLM engine once
+        initialize_llm_engine()
         
         self.req_generator = FunctionalRequirementsGenerator()
         self.api_generator = APIEndpointsGenerator()
@@ -515,7 +584,7 @@ class SpecificationGeneratorPipeline(dspy.Module):
         technical_stack: dict[str, str],
         global_constraints: dict[str, str]
     ) -> dict[str, Any]:
-        """Esegue pipeline completa per un subdomain"""
+        """Execute complete pipeline for a subdomain"""
         service_name = subdomain.name
         print(f"\n{'='*60}")
         print(f"🔄 Processing: {service_name}")
@@ -549,27 +618,15 @@ class SpecificationGeneratorPipeline(dspy.Module):
             "api_endpoints": api_endpoints,
             "message_queues": [],
             "dependencies": self._convert_dependencies(subdomain),
-            "technology_stack": technical_stack or {
-                "language": "Python",
-                "framework": "FastAPI",
-                "database": "PostgreSQL",
-                "cache": "Redis",
-                "message_broker": "RabbitMQ"
-            },
-            "infrastructure_requirements": self._generate_infra_template(),
-            "monitoring_requirements": [
-                "Prometheus metrics endpoint /metrics",
-                "Health check endpoint /health",
-                "Structured JSON logging",
-                "Distributed tracing with Jaeger",
-                "Error rate and latency monitoring"
-            ],
+            "technology_stack": technical_stack or DEFAULT_TECH_STACK,
+            "infrastructure_requirements": INFRASTRUCTURE_TEMPLATE,
+            "monitoring_requirements": MONITORING_REQUIREMENTS,
             "generated_at": datetime.utcnow(),
             "generated_by": "agent3-spec-generator-dspy"
         }
     
     def _convert_dependencies(self, subdomain: Subdomain) -> list[dict]:
-        """Convert dependencies da input schema"""
+        """Convert dependencies from input schema"""
         return [
             {
                 "service_name": dep,
@@ -580,94 +637,25 @@ class SpecificationGeneratorPipeline(dspy.Module):
             }
             for dep in (subdomain.dependencies or [])
         ]
-    
-    def _generate_infra_template(self) -> dict[str, Any]:
-        """Infrastructure requirements template"""
-        return {
-            "database": {
-                "type": "PostgreSQL",
-                "version": "15+",
-                "replicas": 2,
-                "backup_strategy": "daily",
-                "connection_pool": 20
-            },
-            "cache": {
-                "type": "Redis",
-                "version": "7+",
-                "ttl": "1h",
-                "persistence": "AOF",
-                "max_memory": "2GB"
-            },
-            "message_queue": {
-                "type": "RabbitMQ",
-                "version": "3.12+",
-                "durable": True,
-                "prefetch_count": 10,
-                "max_priority": 10
-            },
-            "compute": {
-                "cpu": "2 cores",
-                "memory": "4GB",
-                "storage": "20GB",
-                "auto_scaling": True
-            }
-        }
 
 
 # ============================================================================
-# ORCHESTRATOR - Entry point con SSE streaming
+# ORCHESTRATOR - Streaming-Only Entry Point
 # ============================================================================
 
 class SpecificationOrchestrator:
-    """Orchestrator con supporto SSE streaming"""
+    """Orchestrator with SSE streaming support (streaming-only architecture)"""
     
     def __init__(self):
         self.pipeline = SpecificationGeneratorPipeline()
-    
-    def generate_all_specs(self, architecture_input: ArchitectureInput) -> dict[str, Any]:
-        """Generazione sincrona (legacy endpoint)"""
-        microservices = []
-        total = len(architecture_input.subdomains)
-        
-        print(f"\n🚀 Starting generation for {total} subdomains...")
-        
-        for idx, subdomain in enumerate(architecture_input.subdomains, 1):
-            print(f"\n{'#'*60}")
-            print(f"# Subdomain {idx}/{total}: {subdomain.name}")
-            print(f"{'#'*60}")
-            
-            try:
-                spec = self.pipeline(
-                    subdomain=subdomain,
-                    technical_stack=architecture_input.technical_stack or {},
-                    global_constraints=architecture_input.global_constraints or {}
-                )
-                microservices.append(spec)
-                print(f"✅ {subdomain.name} completed successfully\n")
-                
-            except Exception as e:
-                print(f"❌ {subdomain.name} failed: {e}")
-                microservices.append(self._generate_minimal_spec(subdomain))
-                print(f"⚠️ Using minimal fallback spec for {subdomain.name}\n")
-        
-        return {
-            "project_name": architecture_input.project_name,
-            "project_description": architecture_input.project_description,
-            "specification_version": "1.0.0",
-            "microservices": microservices,
-            "inter_service_communication": self._build_communication_map(architecture_input),
-            "shared_infrastructure": self._get_shared_infrastructure(),
-            "generated_at": datetime.utcnow(),
-            "agent_version": "1.0.0"
-        }
     
     async def generate_all_specs_streaming(
         self, 
         architecture_input: ArchitectureInput
     ) -> AsyncGenerator[dict, None]:
         """
-        Generazione con SSE streaming
-        Yields eventi SSE per ogni step del processo
+        Generate specifications with SSE streaming.
+        Yields SSE events for each step of the process.
         """
         microservices = []
         total = len(architecture_input.subdomains)
@@ -782,7 +770,7 @@ class SpecificationOrchestrator:
             "specification_version": "1.0.0",
             "microservices": microservices,
             "inter_service_communication": self._build_communication_map(architecture_input),
-            "shared_infrastructure": self._get_shared_infrastructure(),
+            "shared_infrastructure": SHARED_INFRASTRUCTURE,
             "generated_at": datetime.utcnow(),
             "agent_version": "1.0.0"
         }
@@ -793,39 +781,14 @@ class SpecificationOrchestrator:
         }
     
     def _build_communication_map(self, architecture_input: ArchitectureInput) -> dict[str, list[str]]:
-        """Costruisce mappa comunicazione inter-service"""
+        """Build inter-service communication map"""
         comm_map = {}
         for subdomain in architecture_input.subdomains:
             comm_map[subdomain.name] = subdomain.dependencies or []
         return comm_map
     
-    def _get_shared_infrastructure(self) -> dict[str, Any]:
-        """Shared infrastructure template"""
-        return {
-            "api_gateway": {
-                "type": "Kong",
-                "version": "3.x",
-                "features": ["rate_limiting", "authentication", "logging"]
-            },
-            "message_broker": {
-                "type": "RabbitMQ",
-                "version": "3.12",
-                "clustering": True
-            },
-            "service_mesh": {
-                "type": "Istio",
-                "version": "1.20",
-                "features": ["traffic_management", "security", "observability"]
-            },
-            "monitoring": {
-                "metrics": "Prometheus + Grafana",
-                "logging": "ELK Stack",
-                "tracing": "Jaeger"
-            }
-        }
-    
     def _generate_minimal_spec(self, subdomain: Subdomain) -> dict:
-        """Spec minimale garantito quando tutto fallisce"""
+        """Minimal fallback spec when everything fails"""
         return {
             "service_name": subdomain.name,
             "version": "1.0.0",
