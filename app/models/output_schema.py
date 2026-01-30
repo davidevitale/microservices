@@ -1,14 +1,5 @@
 """
 Output Schema - Structured Functional Specifications
-
-This schema remains unchanged as it defines the output contract.
-The context chaining ensures consistency between Requirements, Events, APIs, and NFRs.
-
-Context Chaining Flow:
-1. Functional Requirements (base layer)
-2. Domain Events (derived from requirements)
-3. API Endpoints (derived from requirements + events)
-4. Non-Functional Requirements (derived from full complexity analysis)
 """
 
 from datetime import datetime
@@ -48,12 +39,7 @@ class Requirement(BaseModel):
 
 
 class EventDefinition(BaseModel):
-    """
-    Event published/subscribed by microservice.
-    
-    Context: Generated based on Functional Requirements to ensure alignment.
-    Example: If requirement is "Create Order", event is "OrderCreatedEvent"
-    """
+    """Event published/subscribed by microservice"""
 
     event_name: str = Field(..., pattern="^[A-Z][a-zA-Z0-9]*Event$")
     event_type: str = Field(..., description="Domain event type")
@@ -63,12 +49,7 @@ class EventDefinition(BaseModel):
 
 
 class APIEndpoint(BaseModel):
-    """
-    REST API endpoint specification.
-    
-    Context: Generated based on Functional Requirements and Domain Events.
-    Endpoints implement requirements and may trigger events.
-    """
+    """REST API endpoint specification"""
 
     method: str = Field(..., pattern="^(GET|POST|PUT|PATCH|DELETE)$")
     path: str = Field(..., pattern="^/.*")
@@ -101,14 +82,7 @@ class ServiceDependency(BaseModel):
 
 
 class MicroserviceSpec(BaseModel):
-    """
-    Complete functional specification for a microservice.
-    
-    All components are generated with context chaining:
-    - Events align with Requirements
-    - APIs align with Requirements and Events
-    - NFRs reflect the complexity of all components
-    """
+    """Complete functional specification for a microservice"""
 
     service_name: str = Field(..., min_length=3)
     version: str = "1.0.0"

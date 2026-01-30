@@ -1,8 +1,5 @@
 """
 Input Schema - Contract from Agent 2 (Architect)
-
-This schema remains unchanged as it defines the input contract.
-The context chaining happens internally in the generator module.
 """
 
 from enum import Enum
