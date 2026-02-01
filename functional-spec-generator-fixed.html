@@ -1,0 +1,1558 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Functional Specification Generator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #fafafa;
+            --bg-secondary: #ffffff;
+            --text-primary: #1a1a1a;
+            --text-secondary: #666666;
+            --accent: #2563eb;
+            --accent-light: #3b82f6;
+            --border: #e5e5e5;
+            --success: #10b981;
+            --error: #ef4444;
+            --warning: #f59e0b;
+            --shadow: 0 1px 3px rgba(0,0,0,0.05);
+            --shadow-lg: 0 10px 40px rgba(0,0,0,0.08);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Work Sans', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 3rem 2rem;
+        }
+
+        header {
+            margin-bottom: 3rem;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            font-weight: 300;
+        }
+
+        .card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 1.5rem;
+            box-shadow: var(--shadow);
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+        }
+
+        input, textarea, select {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 0.95rem;
+            transition: all 0.2s;
+            background: var(--bg-primary);
+        }
+
+        input:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .subdomain-list {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            background: var(--bg-primary);
+            margin-top: 1rem;
+        }
+
+        .subdomain-item {
+            padding: 1rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            margin-bottom: 0.75rem;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .subdomain-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .subdomain-name {
+            font-weight: 500;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+        }
+
+        .subdomain-type {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            background: var(--bg-primary);
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .subdomain-desc {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .subdomain-responsibilities {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        button {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 0.95rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+            width: 100%;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: var(--accent-light);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .btn-primary:disabled {
+            background: var(--text-secondary);
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: var(--accent);
+            border: 1px solid var(--accent);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(37, 99, 235, 0.05);
+        }
+
+        .btn-remove {
+            background: transparent;
+            color: var(--error);
+            font-size: 0.85rem;
+            padding: 0.25rem 0.5rem;
+        }
+
+        .btn-remove:hover {
+            background: rgba(239, 68, 68, 0.1);
+        }
+
+        .progress-container {
+            margin-top: 2rem;
+            display: none;
+        }
+
+        .progress-container.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .progress-title {
+            font-weight: 500;
+        }
+
+        .progress-status {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .progress-bar {
+            height: 6px;
+            background: var(--bg-primary);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 1.5rem;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent) 0%, var(--accent-light) 100%);
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        .log-container {
+            max-height: 400px;
+            overflow-y: auto;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+        }
+
+        .log-entry {
+            margin-bottom: 0.5rem;
+            padding: 0.5rem;
+            border-radius: 4px;
+            animation: slideIn 0.2s ease;
+        }
+
+        .log-entry.info {
+            background: rgba(37, 99, 235, 0.05);
+            border-left: 3px solid var(--accent);
+        }
+
+        .log-entry.success {
+            background: rgba(16, 185, 129, 0.05);
+            border-left: 3px solid var(--success);
+        }
+
+        .log-entry.error {
+            background: rgba(239, 68, 68, 0.05);
+            border-left: 3px solid var(--error);
+        }
+
+        .log-entry.warning {
+            background: rgba(245, 158, 11, 0.05);
+            border-left: 3px solid var(--warning);
+        }
+
+        .log-timestamp {
+            color: var(--text-secondary);
+            margin-right: 0.5rem;
+        }
+
+        .log-event {
+            font-weight: 600;
+            margin-right: 0.5rem;
+        }
+
+        .log-message {
+            color: var(--text-primary);
+        }
+
+        .results-container {
+            display: none;
+        }
+
+        .results-container.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .results-actions {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+
+        .status-badge.success {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1rem;
+        }
+
+        .tech-stack-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+        }
+
+        .tech-input-wrapper {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .tech-label {
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1.5rem 1rem;
+            }
+
+            h1 {
+                font-size: 1.5rem;
+            }
+
+            .card {
+                padding: 1.5rem;
+            }
+
+            .grid, .tech-stack-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .results-actions {
+                flex-direction: column;
+            }
+
+            .btn-secondary {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Functional Specification Generator</h1>
+            <p class="subtitle">Agent 3 — Trasforma l'architettura in specifiche funzionali dettagliate</p>
+        </header>
+
+        <!-- Input Form -->
+        <div class="card">
+            <div class="form-group">
+                <label for="projectName">Nome Progetto</label>
+                <input type="text" id="projectName" placeholder="e.g., ecommerce-platform" required>
+            </div>
+
+            <div class="form-group">
+                <label for="projectDescription">Descrizione Progetto</label>
+                <textarea id="projectDescription" placeholder="Descrizione del sistema..." required></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>Subdomains</label>
+                <div id="subdomainsList" class="subdomain-list">
+                    <p style="color: var(--text-secondary); font-size: 0.9rem; text-align: center; padding: 2rem;">
+                        Nessun subdomain aggiunto. Clicca "Aggiungi Subdomain" per iniziare.
+                    </p>
+                </div>
+                <button type="button" class="btn-secondary" onclick="openSubdomainModal()" style="margin-top: 1rem; width: 100%;">
+                    + Aggiungi Subdomain
+                </button>
+            </div>
+
+            <!-- Tech Stack with 4 text inputs -->
+            <div class="form-group">
+                <label>Technical Stack</label>
+                <div class="tech-stack-grid">
+                    <div class="tech-input-wrapper">
+                        <span class="tech-label">Linguaggio</span>
+                        <input type="text" id="techLanguage" placeholder="Python">
+                    </div>
+                    <div class="tech-input-wrapper">
+                        <span class="tech-label">Framework</span>
+                        <input type="text" id="techFramework" placeholder="FastAPI">
+                    </div>
+                    <div class="tech-input-wrapper">
+                        <span class="tech-label">Database</span>
+                        <input type="text" id="techDatabase" placeholder="PostgreSQL">
+                    </div>
+                    <div class="tech-input-wrapper">
+                        <span class="tech-label">Cloud/Storage</span>
+                        <input type="text" id="techCloud" placeholder="AWS S3">
+                    </div>
+                </div>
+            </div>
+
+            <button class="btn-primary" onclick="generateSpecifications()" id="generateBtn">
+                Genera Specifiche
+            </button>
+        </div>
+
+        <!-- Progress -->
+        <div class="card progress-container" id="progressContainer">
+            <div class="progress-header">
+                <span class="progress-title">Generazione in corso...</span>
+                <span class="progress-status" id="progressStatus">0%</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="progressBarFill"></div>
+            </div>
+            <div class="log-container" id="logContainer"></div>
+        </div>
+
+        <!-- Results -->
+        <div class="card results-container" id="resultsContainer">
+            <h2 style="margin-bottom: 1rem;">Risultati</h2>
+            <div id="resultsContent"></div>
+            <div class="results-actions">
+                <button class="btn-primary" onclick="downloadHTMLReport()"> Download Report HTML</button>
+                <button class="btn-secondary" onclick="resetForm()"> Nuova Generazione</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Subdomain Modal -->
+    <div id="subdomainModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; padding: 2rem; overflow-y: auto;">
+        <div class="card" style="max-width: 600px; margin: 0 auto;">
+            <h2 style="margin-bottom: 1.5rem;">Aggiungi Subdomain</h2>
+            
+            <div class="form-group">
+                <label for="subName">Nome</label>
+                <input type="text" id="subName" placeholder="order-management">
+            </div>
+
+            <div class="form-group">
+                <label for="subType">Tipo</label>
+                <select id="subType">
+                    <option value="core">Core</option>
+                    <option value="supporting">Supporting</option>
+                    <option value="generic">Generic</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="subDescription">Descrizione</label>
+                <textarea id="subDescription" placeholder="Gestisce il ciclo di vita degli ordini..."></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="subBoundedContext">Bounded Context</label>
+                <input type="text" id="subBoundedContext" placeholder="Sales">
+            </div>
+
+            <div class="form-group">
+                <label for="subResponsibilities">Responsabilità (una per riga)</label>
+                <textarea id="subResponsibilities" placeholder="Order creation
+Order tracking
+Order cancellation"></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="subDependencies">Dipendenze (una per riga, opzionale)</label>
+                <textarea id="subDependencies" placeholder="payment-service
+inventory-service"></textarea>
+            </div>
+
+            <div style="display: flex; gap: 1rem;">
+                <button class="btn-primary" onclick="addSubdomain()">Aggiungi</button>
+                <button class="btn-secondary" onclick="closeSubdomainModal()">Annulla</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let subdomains = [];
+        let generatedResults = []; // Global array to store all microservices
+        let eventSource = null; // Global EventSource for SSE connection
+        const API_BASE_URL = 'http://localhost:8003'; // Configurable backend URL
+
+        function openSubdomainModal() {
+            document.getElementById('subdomainModal').style.display = 'block';
+        }
+
+        function closeSubdomainModal() {
+            document.getElementById('subdomainModal').style.display = 'none';
+            // Clear form
+            document.getElementById('subName').value = '';
+            document.getElementById('subType').value = 'core';
+            document.getElementById('subDescription').value = '';
+            document.getElementById('subBoundedContext').value = '';
+            document.getElementById('subResponsibilities').value = '';
+            document.getElementById('subDependencies').value = '';
+        }
+
+        function addSubdomain() {
+            const name = document.getElementById('subName').value.trim();
+            const type = document.getElementById('subType').value;
+            const description = document.getElementById('subDescription').value.trim();
+            const boundedContext = document.getElementById('subBoundedContext').value.trim();
+            const responsibilities = document.getElementById('subResponsibilities').value
+                .split('\n')
+                .map(r => r.trim())
+                .filter(r => r);
+            const dependencies = document.getElementById('subDependencies').value
+                .split('\n')
+                .map(d => d.trim())
+                .filter(d => d);
+
+            if (!name || !description || !boundedContext || responsibilities.length === 0) {
+                alert('Compila tutti i campi obbligatori');
+                return;
+            }
+
+            const subdomain = {
+                name,
+                type,
+                description,
+                bounded_context: boundedContext,
+                responsibilities,
+                dependencies,
+                communication_patterns: ['async_event', 'sync_rest']
+            };
+
+            subdomains.push(subdomain);
+            renderSubdomains();
+            closeSubdomainModal();
+        }
+
+        function removeSubdomain(index) {
+            subdomains.splice(index, 1);
+            renderSubdomains();
+        }
+
+        function renderSubdomains() {
+            const container = document.getElementById('subdomainsList');
+            
+            if (subdomains.length === 0) {
+                container.innerHTML = '<p style="color: var(--text-secondary); font-size: 0.9rem; text-align: center; padding: 2rem;">Nessun subdomain aggiunto. Clicca "Aggiungi Subdomain" per iniziare.</p>';
+                return;
+            }
+
+            container.innerHTML = subdomains.map((sub, index) => `
+                <div class="subdomain-item">
+                    <div class="subdomain-header">
+                        <span class="subdomain-name">${sub.name}</span>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <span class="subdomain-type">${sub.type}</span>
+                            <button class="btn-remove" onclick="removeSubdomain(${index})">Rimuovi</button>
+                        </div>
+                    </div>
+                    <div class="subdomain-desc">${sub.description}</div>
+                    <div class="subdomain-responsibilities">
+                        <strong>Context:</strong> ${sub.bounded_context} • 
+                        <strong>Responsibilities:</strong> ${sub.responsibilities.join(', ')}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function addLog(event, message, type = 'info') {
+            const container = document.getElementById('logContainer');
+            const timestamp = new Date().toLocaleTimeString('it-IT', { 
+                hour12: false,
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry ${type}`;
+            logEntry.innerHTML = `
+                <span class="log-timestamp">${timestamp}</span>
+                <span class="log-event">[${event}]</span>
+                <span class="log-message">${message}</span>
+            `;
+            container.appendChild(logEntry);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function updateProgress(current, total) {
+            const percentage = Math.round((current / total) * 100);
+            document.getElementById('progressStatus').textContent = `${percentage}%`;
+            document.getElementById('progressBarFill').style.width = `${percentage}%`;
+        }
+
+        /**
+         * ✅ FIXED: Implementazione SSE corretta usando EventSource invece di fetch
+         * 
+         * PROBLEMA ORIGINALE:
+         * - Usava fetch() con response.body.getReader() che può bufferizzare
+         * - Gli eventi arrivavano tutti insieme alla fine invece che in streaming
+         * 
+         * SOLUZIONE:
+         * - Usa EventSource API (standard browser per SSE)
+         * - Eventi arrivano in tempo reale appena disponibili
+         * - Non c'è buffering lato client
+         * 
+         * NOTA: EventSource non supporta POST direttamente, quindi:
+         * 1. Prima facciamo POST dei dati
+         * 2. Poi apriamo EventSource che riceve lo stream
+         * 
+         * ALTERNATIVA (se il backend supporta GET con query params):
+         * Potremmo passare i dati tramite URL, ma con payload grandi è meglio POST
+         */
+        async function generateSpecifications() {
+            const projectName = document.getElementById('projectName').value.trim();
+            const projectDescription = document.getElementById('projectDescription').value.trim();
+            
+            // Build tech stack from 4 separate text inputs
+            const techLanguage = document.getElementById('techLanguage').value.trim();
+            const techFramework = document.getElementById('techFramework').value.trim();
+            const techDatabase = document.getElementById('techDatabase').value.trim();
+            const techCloud = document.getElementById('techCloud').value.trim();
+
+            if (!projectName || !projectDescription || subdomains.length === 0) {
+                alert('Compila tutti i campi e aggiungi almeno un subdomain');
+                return;
+            }
+
+            // Construct tech stack object from text inputs
+            const techStack = {};
+            if (techLanguage) techStack.language = techLanguage;
+            if (techFramework) techStack.framework = techFramework;
+            if (techDatabase) techStack.database = techDatabase;
+            if (techCloud) techStack.cloud_storage = techCloud;
+
+            const payload = {
+                project_name: projectName,
+                project_description: projectDescription,
+                subdomains: subdomains,
+                technical_stack: techStack,
+                global_constraints: {}
+            };
+
+            // Reset state
+            generatedResults = [];
+            document.getElementById('generateBtn').disabled = true;
+            document.getElementById('progressContainer').classList.add('active');
+            document.getElementById('resultsContainer').classList.remove('active');
+            document.getElementById('logContainer').innerHTML = '';
+            updateProgress(0, 100);
+
+            // Close any existing EventSource connection
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+
+            addLog('START', `Avvio generazione per ${subdomains.length} subdomains...`, 'info');
+
+            try {
+                // ✅ WORKAROUND: EventSource non supporta POST
+                // Dobbiamo usare fetch per inviare i dati e processare manualmente lo stream
+                // Questa è l'unica soluzione per SSE con POST body
+                
+                const response = await fetch(`${API_BASE_URL}/generate/stream`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'text/event-stream',
+                    },
+                    body: JSON.stringify(payload)
+                }).catch(error => {
+                    // CORS or network error
+                    addLog('ERROR', `Connessione fallita: ${error.message}`, 'error');
+                    addLog('INFO', 'Verifica che il backend sia avviato su ' + API_BASE_URL, 'warning');
+                    throw error;
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                // ✅ CRITICAL FIX: Processa lo stream in modo non-bloccante
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = ''; // Buffer per righe incomplete
+
+                let totalSubdomains = subdomains.length;
+                let processedSubdomains = 0;
+                let currentEventType = '';
+
+                // ✅ CRITICAL: Funzione ricorsiva async per processare stream
+                async function processStream() {
+                    try {
+                        const { done, value } = await reader.read();
+                        
+                        if (done) {
+                            addLog('INFO', 'Stream completato', 'info');
+                            return;
+                        }
+
+                        // Decodifica chunk e aggiungi al buffer
+                        buffer += decoder.decode(value, { stream: true });
+                        
+                        // Processa righe complete (separate da \n)
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop() || ''; // Mantieni ultima riga incompleta nel buffer
+
+                        for (const line of lines) {
+                            const trimmedLine = line.trim();
+                            if (!trimmedLine) continue;
+
+                            // Parse SSE format: "event: type" or "data: json"
+                            if (trimmedLine.startsWith('event:')) {
+                                currentEventType = trimmedLine.slice(6).trim();
+                            } else if (trimmedLine.startsWith('data:')) {
+                                const dataStr = trimmedLine.slice(5).trim();
+                                if (!dataStr) continue;
+
+                                try {
+                                    const data = JSON.parse(dataStr);
+
+                                    // ✅ Handle different event types IN REAL-TIME
+                                    if (currentEventType === 'start') {
+                                        addLog('INFO', data.message || '🚀 Avvio generazione...', 'info');
+                                    } 
+                                    else if (currentEventType === 'progress') {
+                                        const msg = data.subdomain && data.step 
+                                            ? `[${data.subdomain}] ${data.step}: ${data.message || ''}`
+                                            : data.message || 'In elaborazione...';
+                                        addLog('PROGRESS', msg, 'info');
+                                        
+                                        // Update progress bar if percentage available
+                                        if (data.progress_percent) {
+                                            updateProgress(data.progress_percent, 100);
+                                        }
+                                    } 
+                                    else if (currentEventType === 'microservice') {
+                                        // ✅ Save microservice to results IMMEDIATELY
+                                        generatedResults.push(data);
+                                        processedSubdomains++;
+                                        updateProgress(processedSubdomains, totalSubdomains);
+                                        addLog('SUCCESS', `✓ Completato: ${data.service_name}`, 'success');
+                                    } 
+                                    else if (currentEventType === 'complete') {
+                                        addLog('COMPLETE', '🎉 Tutte le specifiche generate!', 'success');
+                                        updateProgress(100, 100);
+                                        showResults(generatedResults);
+                                    } 
+                                    else if (currentEventType === 'error') {
+                                        addLog('ERROR', data.error || data.message || 'Errore sconosciuto', 'error');
+                                    }
+
+                                    currentEventType = ''; // Reset after processing
+                                } catch (e) {
+                                    console.warn('Parse error:', e, 'Data:', dataStr);
+                                    // Non bloccare lo stream per errori di parsing
+                                }
+                            }
+                        }
+
+                        // ✅ CRITICAL: Continue processing stream recursively
+                        // Questo permette all'event loop di processare altri eventi
+                        // invece di bloccarsi in un loop sincrono
+                        await processStream();
+                        
+                    } catch (streamError) {
+                        console.error('Stream processing error:', streamError);
+                        addLog('ERROR', `Errore stream: ${streamError.message}`, 'error');
+                        throw streamError;
+                    }
+                }
+
+                // ✅ Start processing stream
+                await processStream();
+
+            } catch (error) {
+                console.error('Generation error:', error);
+                addLog('ERROR', `Errore: ${error.message}`, 'error');
+                
+                // Provide helpful debugging info
+                if (error.message.includes('fetch') || error.message.includes('Failed to fetch')) {
+                    addLog('INFO', '💡 Verifica CORS: il backend deve permettere richieste da questo origin', 'warning');
+                    addLog('INFO', '💡 Controlla che il backend sia avviato su: ' + API_BASE_URL, 'warning');
+                }
+            } finally {
+                document.getElementById('generateBtn').disabled = false;
+            }
+        }
+
+        function showResults(microservices) {
+            const container = document.getElementById('resultsContent');
+            
+            container.innerHTML = `
+                <div style="margin-bottom: 1.5rem;">
+                    <span class="status-badge success">✅ Completato</span>
+                    <p style="margin-top: 1rem; color: var(--text-secondary);">
+                        Generati ${microservices.length} microservizi
+                    </p>
+                </div>
+                <div class="grid">
+                    ${microservices.map(ms => `
+                        <div style="border: 1px solid var(--border); border-radius: 8px; padding: 1rem;">
+                            <h3 style="font-size: 1rem; margin-bottom: 0.5rem; font-family: 'JetBrains Mono', monospace;">
+                                ${ms.service_name || 'Unknown Service'}
+                            </h3>
+                            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                                ${ms.description || 'No description'}
+                            </p>
+                            <div style="font-size: 0.75rem; color: var(--text-secondary);">
+                                <strong>Requirements:</strong> ${ms.functional_requirements?.length || 0} functional, 
+                                ${ms.non_functional_requirements?.length || 0} non-functional<br>
+                                <strong>API Endpoints:</strong> ${ms.api_endpoints?.length || 0}<br>
+                                <strong>Events:</strong> ${ms.events_published?.length || 0} published
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+
+            document.getElementById('resultsContainer').classList.add('active');
+        }
+
+        function downloadHTMLReport() {
+            if (!generatedResults || generatedResults.length === 0) {
+                alert('Nessun risultato da scaricare');
+                return;
+            }
+
+            const projectName = document.getElementById('projectName').value.trim();
+            const projectDescription = document.getElementById('projectDescription').value.trim();
+            const generatedDate = new Date().toLocaleString('it-IT');
+
+            // Build comprehensive HTML report (same as original)
+            let html = `<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Functional Specifications - ${projectName}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #2563eb;
+            --primary-light: #3b82f6;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --error: #ef4444;
+            --bg: #ffffff;
+            --bg-alt: #f9fafb;
+            --border: #e5e7eb;
+            --text: #111827;
+            --text-light: #6b7280;
+            --text-lighter: #9ca3af;
+        }
+
+        body {
+            font-family: 'Work Sans', -apple-system, sans-serif;
+            line-height: 1.6;
+            color: var(--text);
+            background: var(--bg-alt);
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: var(--bg);
+            padding: 3rem;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        header {
+            border-bottom: 3px solid var(--primary);
+            padding-bottom: 2rem;
+            margin-bottom: 3rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.025em;
+        }
+
+        .meta {
+            display: flex;
+            gap: 2rem;
+            margin-top: 1rem;
+            font-size: 0.95rem;
+            color: var(--text-light);
+        }
+
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .meta-label {
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .description {
+            background: var(--bg-alt);
+            border-left: 4px solid var(--primary);
+            padding: 1.5rem;
+            margin: 2rem 0;
+            border-radius: 4px;
+        }
+
+        .toc {
+            background: var(--bg-alt);
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+        }
+
+        .toc h3 {
+            color: var(--primary);
+            margin-bottom: 1rem;
+        }
+
+        .toc ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .toc li {
+            margin-bottom: 0.5rem;
+        }
+
+        .toc a {
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .toc a:hover {
+            text-decoration: underline;
+        }
+
+        h2 {
+            font-size: 1.75rem;
+            font-weight: 600;
+            margin-top: 3rem;
+            margin-bottom: 1.5rem;
+            color: var(--text);
+            border-bottom: 2px solid var(--border);
+            padding-bottom: 0.5rem;
+        }
+
+        h3 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+            color: var(--primary);
+        }
+
+        .service-card {
+            background: var(--bg);
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            transition: all 0.3s ease;
+        }
+
+        .service-card:hover {
+            border-color: var(--primary);
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.1);
+        }
+
+        .service-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .service-name {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--primary);
+        }
+
+        .version-badge {
+            background: var(--bg-alt);
+            color: var(--text-light);
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .service-description {
+            color: var(--text-light);
+            margin-bottom: 1.5rem;
+            font-size: 1.05rem;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.35rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-right: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .badge.high {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--error);
+        }
+
+        .badge.medium {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--warning);
+        }
+
+        .badge.low {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+        }
+
+        .badge.critical {
+            background: rgba(239, 68, 68, 0.2);
+            color: #b91c1c;
+            font-weight: 700;
+        }
+
+        .requirement {
+            background: var(--bg-alt);
+            border-left: 4px solid var(--primary);
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+            border-radius: 4px;
+        }
+
+        .requirement-header {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: var(--text);
+        }
+
+        .requirement-id {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--primary);
+            font-size: 0.9rem;
+            margin-right: 0.5rem;
+        }
+
+        .requirement-description {
+            color: var(--text-light);
+            margin-bottom: 0.75rem;
+        }
+
+        .acceptance-criteria {
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .acceptance-criteria-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        li {
+            padding-left: 1.5rem;
+            position: relative;
+            margin-bottom: 0.5rem;
+            color: var(--text-light);
+        }
+
+        li::before {
+            content: "→";
+            position: absolute;
+            left: 0;
+            color: var(--primary);
+            font-weight: bold;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+            background: var(--bg);
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        thead {
+            background: var(--bg-alt);
+        }
+
+        th {
+            padding: 1rem;
+            text-align: left;
+            font-weight: 600;
+            color: var(--text);
+            border-bottom: 2px solid var(--border);
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-light);
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover {
+            background: var(--bg-alt);
+        }
+
+        .method {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+        }
+
+        .method.GET { background: rgba(16, 185, 129, 0.1); color: var(--success); }
+        .method.POST { background: rgba(59, 130, 246, 0.1); color: var(--primary); }
+        .method.PUT { background: rgba(245, 158, 11, 0.1); color: var(--warning); }
+        .method.DELETE { background: rgba(239, 68, 68, 0.1); color: var(--error); }
+        .method.PATCH { background: rgba(168, 85, 247, 0.1); color: #9333ea; }
+
+        .path {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--text);
+            font-size: 0.9rem;
+        }
+
+        .auth-check {
+            font-size: 1.2rem;
+            text-align: center;
+        }
+
+        .event-card, .dependency-card {
+            background: var(--bg-alt);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .event-name, .dependency-name {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .event-type {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            background: var(--bg);
+            border-radius: 4px;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            color: var(--text-light);
+            margin-bottom: 0.5rem;
+        }
+
+        .event-details {
+            font-size: 0.9rem;
+            color: var(--text-light);
+        }
+
+        .tech-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+
+        .tech-item {
+            background: var(--bg-alt);
+            padding: 1rem;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+        }
+
+        .tech-label {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-light);
+            margin-bottom: 0.25rem;
+        }
+
+        .tech-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        @media print {
+            body {
+                padding: 0;
+                background: white;
+            }
+            .service-card {
+                page-break-inside: avoid;
+                box-shadow: none;
+            }
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 1rem;
+            }
+            .container {
+                padding: 1.5rem;
+            }
+            h1 {
+                font-size: 1.75rem;
+            }
+            .meta {
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+            table {
+                font-size: 0.85rem;
+            }
+            th, td {
+                padding: 0.75rem 0.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Functional Specifications Report</h1>
+            <div class="meta">
+                <div class="meta-item">
+                    <span class="meta-label">Project:</span>
+                    <span>${projectName}</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Generated:</span>
+                    <span>${generatedDate}</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Microservices:</span>
+                    <span>${generatedResults.length}</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="description">
+            <strong>Project Description:</strong><br>
+            ${projectDescription}
+        </div>
+
+        <div class="toc">
+            <h3>📑 Table of Contents</h3>
+            <ul>
+                ${generatedResults.map((ms, index) => `
+                    <li><a href="#service-${index}">${ms.service_name}</a></li>
+                `).join('')}
+            </ul>
+        </div>
+`;
+
+            // Generate each microservice section
+            generatedResults.forEach((ms, index) => {
+                html += `
+        <div class="service-card" id="service-${index}">
+            <div class="service-header">
+                <div class="service-name">${ms.service_name || 'Unknown Service'}</div>
+                <div class="version-badge">v${ms.version || '1.0.0'}</div>
+            </div>
+
+            <div class="service-description">${ms.description || 'No description available'}</div>
+
+            ${ms.bounded_context ? `<p style="color: var(--text-light); margin-bottom: 1rem;"><strong>Bounded Context:</strong> ${ms.bounded_context}</p>` : ''}
+`;
+
+                // Functional Requirements
+                if (ms.functional_requirements && ms.functional_requirements.length > 0) {
+                    html += `
+            <h3>⚙️ Functional Requirements</h3>
+`;
+                    ms.functional_requirements.forEach(req => {
+                        html += `
+            <div class="requirement">
+                <div class="requirement-header">
+                    <span class="requirement-id">${req.id}</span>
+                    <span>${req.title}</span>
+                    <span class="badge ${req.priority?.toLowerCase() || 'medium'}">${req.priority || 'MEDIUM'}</span>
+                </div>
+                <div class="requirement-description">${req.description}</div>
+`;
+                        if (req.acceptance_criteria && req.acceptance_criteria.length > 0) {
+                            html += `
+                <div class="acceptance-criteria">
+                    <div class="acceptance-criteria-title">Acceptance Criteria:</div>
+                    <ul>
+                        ${req.acceptance_criteria.map(criterion => `<li>${criterion}</li>`).join('')}
+                    </ul>
+                </div>
+`;
+                        }
+                        html += `
+            </div>
+`;
+                    });
+                }
+
+                // Non-Functional Requirements
+                if (ms.non_functional_requirements && ms.non_functional_requirements.length > 0) {
+                    html += `
+            <h3>📊 Non-Functional Requirements</h3>
+            <ul>
+                ${ms.non_functional_requirements.map(req => `
+                    <li>
+                        <strong>${req.title}</strong> <span class="badge ${req.priority?.toLowerCase() || 'medium'}">${req.priority || 'MEDIUM'}</span><br>
+                        <span style="color: var(--text-light);">${req.description}</span>
+                    </li>
+                `).join('')}
+            </ul>
+`;
+                }
+
+                // API Endpoints
+                if (ms.api_endpoints && ms.api_endpoints.length > 0) {
+                    html += `
+            <h3>🔌 API Endpoints</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Method</th>
+                        <th>Path</th>
+                        <th>Description</th>
+                        <th>Auth</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${ms.api_endpoints.map(endpoint => `
+                        <tr>
+                            <td><span class="method ${endpoint.method}">${endpoint.method}</span></td>
+                            <td><span class="path">${endpoint.path}</span></td>
+                            <td>${endpoint.description}</td>
+                            <td class="auth-check">${endpoint.authentication_required ? '✓' : '✗'}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+`;
+                }
+
+                // Events Published
+                if (ms.events_published && ms.events_published.length > 0) {
+                    html += `
+            <h3>📤 Events Published</h3>
+`;
+                    ms.events_published.forEach(event => {
+                        html += `
+            <div class="event-card">
+                <div class="event-name">${event.event_name}</div>
+                <span class="event-type">${event.event_type || 'event'}</span>
+                <div class="event-details">
+                    <strong>Triggers:</strong> ${event.trigger_conditions?.join(', ') || 'N/A'}<br>
+                    ${event.consumers && event.consumers.length > 0 ? `<strong>Consumers:</strong> ${event.consumers.join(', ')}` : ''}
+                </div>
+            </div>
+`;
+                    });
+                }
+
+                // Events Subscribed
+                if (ms.events_subscribed && ms.events_subscribed.length > 0) {
+                    html += `
+            <h3>📥 Events Subscribed</h3>
+            <ul>
+                ${ms.events_subscribed.map(event => `
+                    <li><strong>${event.event_name}</strong> (${event.event_type || 'event'})</li>
+                `).join('')}
+            </ul>
+`;
+                }
+
+                // Dependencies
+                if (ms.dependencies && ms.dependencies.length > 0) {
+                    html += `
+            <h3>🔗 Dependencies</h3>
+`;
+                    ms.dependencies.forEach(dep => {
+                        html += `
+            <div class="dependency-card">
+                <div class="dependency-name">${dep.service_name}</div>
+                <div style="font-size: 0.9rem; color: var(--text-light); margin-top: 0.5rem;">
+                    <span class="badge ${dep.criticality?.toLowerCase() || 'medium'}">${dep.criticality || 'MEDIUM'}</span>
+                    <span class="badge low">${dep.dependency_type || 'sync'}</span><br>
+                    <strong>Communication:</strong> ${dep.communication_method || 'REST'}<br>
+                    ${dep.fallback_strategy ? `<strong>Fallback:</strong> ${dep.fallback_strategy}` : ''}
+                </div>
+            </div>
+`;
+                    });
+                }
+
+                // Technology Stack
+                if (ms.technology_stack && Object.keys(ms.technology_stack).length > 0) {
+                    html += `
+            <h3>🛠️ Technology Stack</h3>
+            <div class="tech-grid">
+                ${Object.entries(ms.technology_stack).map(([key, value]) => `
+                    <div class="tech-item">
+                        <div class="tech-label">${key}</div>
+                        <div class="tech-value">${value}</div>
+                    </div>
+                `).join('')}
+            </div>
+`;
+                }
+
+                // Monitoring Requirements
+                if (ms.monitoring_requirements && ms.monitoring_requirements.length > 0) {
+                    html += `
+            <h3>📈 Monitoring Requirements</h3>
+            <ul>
+                ${ms.monitoring_requirements.map(req => `<li>${req}</li>`).join('')}
+            </ul>
+`;
+                }
+
+                html += `
+        </div>
+`;
+            });
+
+            html += `
+    </div>
+</body>
+</html>`;
+
+            // Create and download the HTML file
+            const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `functional-specs-${projectName}-${Date.now()}.html`;
+            link.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function resetForm() {
+            document.getElementById('projectName').value = '';
+            document.getElementById('projectDescription').value = '';
+            document.getElementById('techLanguage').value = '';
+            document.getElementById('techFramework').value = '';
+            document.getElementById('techDatabase').value = '';
+            document.getElementById('techCloud').value = '';
+            subdomains = [];
+            generatedResults = [];
+            renderSubdomains();
+            document.getElementById('progressContainer').classList.remove('active');
+            document.getElementById('resultsContainer').classList.remove('active');
+            
+            // Close EventSource if exists
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+        }
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (eventSource) {
+                eventSource.close();
+            }
+        });
+
+        // Initialize
+        renderSubdomains();
+    </script>
+</body>
+</html>

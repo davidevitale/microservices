@@ -1,12 +1,15 @@
 """
 generator_module.py - DSPy-Based Specification Generator
-REFACTORED: Removed redundancy, added shared utilities, streaming-only architecture
+FIXED: TRUE SSE STREAMING with async/await and progress callbacks
+FIXED: Robust JSON parsing with proper text cleanup
 """
 
 import json
 import re
+import asyncio
 from datetime import datetime
-from typing import Any, Optional, AsyncGenerator
+from typing import Any, Optional, AsyncGenerator, Callable
+from functools import partial
 
 import dspy
 from pydantic import ValidationError
@@ -97,7 +100,8 @@ def extract_json_from_text(text: str) -> Optional[str]:
     """
     Extract JSON from text that may contain markdown code blocks or other noise.
     
-    This utility function removes redundancy across all generator classes.
+    FIXED: Properly handles LLM output that continues after JSON
+    Example: [...JSON...] Inoltre, possiamo aggiungere...
     
     Args:
         text: Raw text that may contain JSON
@@ -110,10 +114,41 @@ def extract_json_from_text(text: str) -> Optional[str]:
     if match:
         return match.group(1)
     
-    # Try to match raw JSON array or object
+    # Try to find JSON array or object
+    # First, find the start of JSON
+    json_start = -1
+    for i, char in enumerate(text):
+        if char in '[{':
+            json_start = i
+            break
+    
+    if json_start == -1:
+        return text.strip()
+    
+    # Now find the matching closing bracket
+    # We need to count nested brackets
+    opening = text[json_start]
+    closing = ']' if opening == '[' else '}'
+    
+    depth = 0
+    for i in range(json_start, len(text)):
+        if text[i] == opening:
+            depth += 1
+        elif text[i] == closing:
+            depth -= 1
+            if depth == 0:
+                # Found the end of JSON
+                return text[json_start:i+1]
+    
+    # If we couldn't find proper closing, try the old method as fallback
     match = re.search(r'(\[.*\]|\{.*\})', text, re.DOTALL)
     if match:
-        return match.group(1)
+        json_text = match.group(1)
+        # Try to find last ] or } and cut there
+        last_bracket = max(json_text.rfind(']'), json_text.rfind('}'))
+        if last_bracket != -1:
+            return json_text[:last_bracket+1]
+        return json_text
     
     # Return cleaned text as fallback
     return text.strip()
@@ -143,7 +178,7 @@ class GenerateFunctionalRequirements(dspy.Signature):
     "acceptance_criteria": ["criterio 1", "criterio 2", "criterio 3"]
   }
 ]
-Genera 3-5 requisiti. NO markdown, NO spiegazioni, SOLO JSON valido."""
+Genera 3-5 requisiti. NO markdown, NO spiegazioni, SOLO JSON valido. IN ITALIANO"""
     )
 
 
@@ -166,7 +201,7 @@ class GenerateAPIEndpoints(dspy.Signature):
     "rate_limit": "100/min"
   }
 ]
-Genera 3-5 endpoints REST. SOLO JSON valido."""
+Genera 3-5 endpoints REST. SOLO JSON valido. DESCRIZIONI in ITALIANO."""
     )
 
 
@@ -210,25 +245,31 @@ class GenerateNonFunctionalRequirements(dspy.Signature):
     "acceptance_criteria": ["SLA specifico", "metrica misurabile"]
   }
 ]
-Genera 3-4 NFRs. Focus: performance, sicurezza, scalabilità, disponibilità."""
+Genera 3-4 NFRs. Focus: performance, sicurezza, scalabilità, disponibilità. IN ITALIANO"""
     )
 
 
 # ============================================================================
-# DSPy MODULES - Reusable Components with Chain-of-Thought
+# GENERATOR MODULES - Encapsulated DSPy Modules
 # ============================================================================
 
 class FunctionalRequirementsGenerator(dspy.Module):
-    """Module for generating functional requirements with CoT"""
+    """Module for generating functional requirements"""
     
     def __init__(self):
         super().__init__()
         self.generate = dspy.ChainOfThought(GenerateFunctionalRequirements)
     
-    def forward(self, subdomain: Subdomain) -> list[dict]:
-        """Generate functional requirements with step-by-step reasoning"""
+    def forward(self, subdomain: Subdomain, progress_callback: Optional[Callable] = None) -> list[dict]:
+        """Generate functional requirements for a subdomain"""
         try:
+            if progress_callback:
+                progress_callback("Preparing functional requirements...")
+            
             responsibilities_str = "\n- " + "\n- ".join(subdomain.responsibilities[:5])
+            
+            if progress_callback:
+                progress_callback("Calling LLM for functional requirements...")
             
             result = self.generate(
                 service_name=subdomain.name,
@@ -237,83 +278,116 @@ class FunctionalRequirementsGenerator(dspy.Module):
                 bounded_context=subdomain.bounded_context
             )
             
-            requirements = self._parse_and_validate(result.requirements_json, subdomain.name)
+            if progress_callback:
+                progress_callback("Parsing functional requirements...")
             
-            if not requirements:
-                raise ValueError("Empty requirements from LLM")
+            requirements = self._parse_requirements(result.requirements_json)
             
-            return requirements
+            if requirements:
+                if progress_callback:
+                    progress_callback(f"✅ Generated {len(requirements)} functional requirements")
+                return requirements
+            else:
+                if progress_callback:
+                    progress_callback("⚠️ Using fallback requirements")
+                return self._fallback_requirements(subdomain.name)
             
         except Exception as e:
-            print(f"⚠️ Requirements generation failed for {subdomain.name}: {e}")
-            return self._fallback_requirements(subdomain)
+            print(f"⚠️ Functional requirements generation failed: {e}")
+            if progress_callback:
+                progress_callback(f"⚠️ Using fallback requirements: {str(e)[:100]}")
+            return self._fallback_requirements(subdomain.name)
     
-    def _parse_and_validate(self, json_str: str, service_name: str) -> list[dict]:
-        """Parse JSON with robust validation"""
+    def _parse_requirements(self, json_str: str) -> list[dict]:
+        """
+        Parse functional requirements JSON with detailed logging
+        """
+        print(f"   📍 [FR Parser] Raw input length: {len(json_str)} chars")
+        print(f"   📍 [FR Parser] First 200 chars: {json_str[:200]}")
+        
         json_clean = extract_json_from_text(json_str)
         
         if not json_clean:
+            print("   ❌ [FR Parser] No JSON found in text")
             return []
+        
+        print(f"   📍 [FR Parser] Cleaned JSON length: {len(json_clean)} chars")
+        print(f"   📍 [FR Parser] Cleaned JSON preview: {json_clean[:300]}")
         
         try:
             data = json.loads(json_clean)
-        except json.JSONDecodeError as e:
-            print(f"❌ JSON decode error: {e}")
-            return []
-        
-        if not isinstance(data, list):
-            data = [data]
-        
-        validated = []
-        for idx, req in enumerate(data[:5]):
-            if not isinstance(req, dict):
-                continue
+            print(f"   ✅ [FR Parser] JSON parsed successfully, type: {type(data)}")
             
-            normalized = {
-                "id": req.get("id", f"FR-{idx+1:03d}"),
-                "type": "functional",
-                "priority": self._normalize_priority(req.get("priority", "medium")),
-                "title": str(req.get("title", f"{service_name} requirement {idx+1}"))[:200],
-                "description": str(req.get("description", "To be defined"))[:1000],
-                "acceptance_criteria": self._normalize_criteria(req.get("acceptance_criteria", [])),
-                "related_requirements": req.get("related_requirements", [])
-            }
-            validated.append(normalized)
-        
-        return validated
+            # Handle wrapped JSON
+            if isinstance(data, dict):
+                print(f"   📍 [FR Parser] Got dict with keys: {list(data.keys())}")
+                for key in ['requirements', 'functional_requirements', 'items', 'data']:
+                    if key in data and isinstance(data[key], list):
+                        print(f"   ✅ [FR Parser] Found requirements in key '{key}'")
+                        data = data[key]
+                        break
+                else:
+                    print(f"   ⚠️ [FR Parser] Converting dict to list")
+                    data = [data]
+            
+            if not isinstance(data, list):
+                print(f"   ❌ [FR Parser] Data is not a list: {type(data)}")
+                return []
+            
+            print(f"   📍 [FR Parser] Processing {len(data)} requirement items")
+            
+            validated = []
+            for idx, req in enumerate(data[:5]):
+                if not isinstance(req, dict):
+                    print(f"   ⚠️ [FR Parser] Item {idx} is not a dict: {type(req)}")
+                    continue
+                
+                print(f"   📍 [FR Parser] Item {idx} keys: {list(req.keys())}")
+                
+                validated_req = {
+                    "id": req.get("id", f"FR-{len(validated)+1:03d}"),
+                    "type": "functional",
+                    "priority": req.get("priority", "medium"),
+                    "title": str(req.get("title", ""))[:200],
+                    "description": str(req.get("description", ""))[:1000],
+                    "acceptance_criteria": req.get("acceptance_criteria", []),
+                    "related_requirements": []
+                }
+                
+                if not validated_req["title"]:
+                    print(f"   ⚠️ [FR Parser] Item {idx} missing title, skipping")
+                    continue
+                
+                validated.append(validated_req)
+                print(f"   ✅ [FR Parser] Item {idx} validated: {validated_req['title']}")
+            
+            print(f"   ✅ [FR Parser] Successfully validated {len(validated)} requirements")
+            return validated
+            
+        except json.JSONDecodeError as e:
+            print(f"   ❌ [FR Parser] JSON decode error: {e}")
+            print(f"   📍 [FR Parser] Error at position {e.pos}")
+            print(f"   📍 [FR Parser] Around: {json_clean[max(0, e.pos-50):e.pos+50]}")
+            return []
+        except Exception as e:
+            print(f"   ❌ [FR Parser] Unexpected error: {type(e).__name__}: {e}")
+            import traceback
+            print(f"   📍 [FR Parser] Traceback: {traceback.format_exc()}")
+            return []
     
-    def _normalize_priority(self, priority: str) -> str:
-        """Normalize priority values"""
-        p = str(priority).lower()
-        if "critical" in p:
-            return "critical"
-        elif "high" in p:
-            return "high"
-        elif "low" in p:
-            return "low"
-        return "medium"
-    
-    def _normalize_criteria(self, criteria: Any) -> list[str]:
-        """Normalize acceptance criteria"""
-        if isinstance(criteria, list):
-            return [str(c)[:200] for c in criteria if c][:5]
-        elif isinstance(criteria, str):
-            return [criteria[:200]]
-        return ["Acceptance criteria to be defined"]
-    
-    def _fallback_requirements(self, subdomain: Subdomain) -> list[dict]:
-        """Fallback template when generation fails"""
+    def _fallback_requirements(self, service_name: str) -> list[dict]:
+        """Fallback requirements template"""
         return [
             {
                 "id": "FR-001",
                 "type": "functional",
                 "priority": "high",
-                "title": f"Core {subdomain.name} functionality",
-                "description": f"Implement core business logic for {subdomain.name} based on: {', '.join(subdomain.responsibilities[:3])}",
+                "title": f"Implement {service_name} core functionality",
+                "description": f"The service must implement the core business logic for {service_name}",
                 "acceptance_criteria": [
-                    "Service is operational and responds to health checks",
-                    "Core domain logic is implemented",
-                    "Basic CRUD operations are functional"
+                    "Service implements all required business operations",
+                    "All operations complete successfully",
+                    "Error handling is in place"
                 ],
                 "related_requirements": []
             },
@@ -321,14 +395,14 @@ class FunctionalRequirementsGenerator(dspy.Module):
                 "id": "FR-002",
                 "type": "functional",
                 "priority": "medium",
-                "title": f"Data persistence for {subdomain.name}",
-                "description": f"Implement data storage and retrieval mechanisms",
+                "title": f"Data validation and integrity for {service_name}",
+                "description": "All input data must be validated and sanitized",
                 "acceptance_criteria": [
-                    "Data is persisted correctly",
-                    "Data integrity is maintained",
-                    "Query performance meets SLA"
+                    "Input validation rules are defined",
+                    "Invalid data is rejected with clear error messages",
+                    "Data integrity is maintained"
                 ],
-                "related_requirements": ["FR-001"]
+                "related_requirements": []
             }
         ]
 
@@ -340,41 +414,90 @@ class APIEndpointsGenerator(dspy.Module):
         super().__init__()
         self.generate = dspy.ChainOfThought(GenerateAPIEndpoints)
     
-    def forward(self, subdomain: Subdomain, requirements: list[dict]) -> list[dict]:
+    def forward(self, subdomain: Subdomain, requirements: list[dict], progress_callback: Optional[Callable] = None) -> list[dict]:
         """Generate REST API endpoints based on requirements"""
         try:
+            if progress_callback:
+                progress_callback("Preparing API endpoint generation...")
+            
             req_summary = "\n".join([
                 f"- {req['id']}: {req['title']}"
                 for req in requirements[:5]
             ])
+            
+            if progress_callback:
+                progress_callback("Calling LLM for API endpoints...")
             
             result = self.generate(
                 service_name=subdomain.name,
                 functional_requirements=req_summary
             )
             
+            if progress_callback:
+                progress_callback("Parsing API endpoints...")
+            
             endpoints = self._parse_endpoints(result.endpoints_json)
-            return endpoints if endpoints else self._fallback_endpoints(subdomain)
+            
+            if endpoints:
+                if progress_callback:
+                    progress_callback(f"✅ Generated {len(endpoints)} API endpoints")
+                return endpoints
+            else:
+                if progress_callback:
+                    progress_callback("⚠️ Using fallback endpoints")
+                return self._fallback_endpoints(subdomain)
             
         except Exception as e:
             print(f"⚠️ API endpoints generation failed: {e}")
+            if progress_callback:
+                progress_callback(f"⚠️ Using fallback endpoints due to: {str(e)[:100]}")
             return self._fallback_endpoints(subdomain)
     
     def _parse_endpoints(self, json_str: str) -> list[dict]:
-        """Parse endpoints JSON"""
+        """
+        Parse endpoints JSON with detailed logging
+        """
+        print(f"   📍 [API Parser] Raw input length: {len(json_str)} chars")
+        print(f"   📍 [API Parser] First 200 chars: {json_str[:200]}")
+        
         json_clean = extract_json_from_text(json_str)
+        
         if not json_clean:
+            print("   ❌ [API Parser] No JSON found in text")
             return []
+        
+        print(f"   📍 [API Parser] Cleaned JSON length: {len(json_clean)} chars")
+        print(f"   📍 [API Parser] Cleaned JSON preview: {json_clean[:300]}")
         
         try:
             data = json.loads(json_clean)
+            print(f"   ✅ [API Parser] JSON parsed successfully, type: {type(data)}")
+            
+            # Handle wrapped JSON
+            if isinstance(data, dict):
+                print(f"   📍 [API Parser] Got dict with keys: {list(data.keys())}")
+                for key in ['endpoints', 'api_endpoints', 'apis', 'items', 'data']:
+                    if key in data and isinstance(data[key], list):
+                        print(f"   ✅ [API Parser] Found endpoints in key '{key}'")
+                        data = data[key]
+                        break
+                else:
+                    print(f"   ⚠️ [API Parser] Converting dict to list")
+                    data = [data]
+            
             if not isinstance(data, list):
-                data = [data]
+                print(f"   ❌ [API Parser] Data is not a list: {type(data)}")
+                return []
+            
+            print(f"   📍 [API Parser] Processing {len(data)} endpoint items")
             
             validated = []
-            for ep in data[:7]:
+            for idx, ep in enumerate(data[:7]):
                 if not isinstance(ep, dict):
+                    print(f"   ⚠️ [API Parser] Item {idx} is not a dict: {type(ep)}")
                     continue
+                
+                print(f"   📍 [API Parser] Item {idx} keys: {list(ep.keys())}")
                 
                 validated.append({
                     "method": ep.get("method", "GET").upper(),
@@ -385,9 +508,20 @@ class APIEndpointsGenerator(dspy.Module):
                     "authentication_required": bool(ep.get("authentication_required", True)),
                     "rate_limit": ep.get("rate_limit", "100/min")
                 })
+                print(f"   ✅ [API Parser] Item {idx} validated: {ep.get('method', 'GET')} {ep.get('path', '/api/v1/resource')}")
             
+            print(f"   ✅ [API Parser] Successfully validated {len(validated)} endpoints")
             return validated
-        except:
+            
+        except json.JSONDecodeError as e:
+            print(f"   ❌ [API Parser] JSON decode error: {e}")
+            print(f"   📍 [API Parser] Error at position {e.pos}")
+            print(f"   📍 [API Parser] Around: {json_clean[max(0, e.pos-50):e.pos+50]}")
+            return []
+        except Exception as e:
+            print(f"   ❌ [API Parser] Unexpected error: {type(e).__name__}: {e}")
+            import traceback
+            print(f"   📍 [API Parser] Traceback: {traceback.format_exc()}")
             return []
     
     def _fallback_endpoints(self, subdomain: Subdomain) -> list[dict]:
@@ -430,11 +564,17 @@ class DomainEventsGenerator(dspy.Module):
         super().__init__()
         self.generate = dspy.ChainOfThought(GenerateDomainEvents)
     
-    def forward(self, subdomain: Subdomain) -> list[dict]:
+    def forward(self, subdomain: Subdomain, progress_callback: Optional[Callable] = None) -> list[dict]:
         """Generate domain-driven events"""
         try:
+            if progress_callback:
+                progress_callback("Preparing domain events generation...")
+            
             patterns = ", ".join([p.value for p in subdomain.communication_patterns])
             responsibilities = "\n- " + "\n- ".join(subdomain.responsibilities[:3])
+            
+            if progress_callback:
+                progress_callback("Calling LLM for domain events...")
             
             result = self.generate(
                 service_name=subdomain.name,
@@ -442,28 +582,67 @@ class DomainEventsGenerator(dspy.Module):
                 communication_patterns=patterns or "async_event"
             )
             
+            if progress_callback:
+                progress_callback("Parsing domain events...")
+            
             events = self._parse_events(result.events_json)
+            
+            if events and progress_callback:
+                progress_callback(f"✅ Generated {len(events)} domain events")
+            
             return events if events else []
             
         except Exception as e:
             print(f"⚠️ Events generation failed: {e}")
+            if progress_callback:
+                progress_callback(f"⚠️ No events generated: {str(e)[:100]}")
             return []
     
     def _parse_events(self, json_str: str) -> list[dict]:
-        """Parse events JSON"""
+        """
+        Parse events JSON with detailed logging
+        """
+        print(f"   📍 [Events Parser] Raw input length: {len(json_str)} chars")
+        print(f"   📍 [Events Parser] First 200 chars: {json_str[:200]}")
+        
         json_clean = extract_json_from_text(json_str)
+        
         if not json_clean:
+            print("   ❌ [Events Parser] No JSON found in text")
             return []
+        
+        print(f"   📍 [Events Parser] Cleaned JSON length: {len(json_clean)} chars")
+        print(f"   📍 [Events Parser] Cleaned JSON preview: {json_clean[:300]}")
         
         try:
             data = json.loads(json_clean)
+            print(f"   ✅ [Events Parser] JSON parsed successfully, type: {type(data)}")
+            
+            # Handle wrapped JSON
+            if isinstance(data, dict):
+                print(f"   📍 [Events Parser] Got dict with keys: {list(data.keys())}")
+                for key in ['events', 'domain_events', 'items', 'data']:
+                    if key in data and isinstance(data[key], list):
+                        print(f"   ✅ [Events Parser] Found events in key '{key}'")
+                        data = data[key]
+                        break
+                else:
+                    print(f"   ⚠️ [Events Parser] Converting dict to list")
+                    data = [data]
+            
             if not isinstance(data, list):
-                data = [data]
+                print(f"   ❌ [Events Parser] Data is not a list: {type(data)}")
+                return []
+            
+            print(f"   📍 [Events Parser] Processing {len(data)} event items")
             
             validated = []
-            for ev in data[:5]:
+            for idx, ev in enumerate(data[:5]):
                 if not isinstance(ev, dict):
+                    print(f"   ⚠️ [Events Parser] Item {idx} is not a dict: {type(ev)}")
                     continue
+                
+                print(f"   📍 [Events Parser] Item {idx} keys: {list(ev.keys())}")
                 
                 validated.append({
                     "event_name": ev.get("event_name", "DomainEvent"),
@@ -472,51 +651,120 @@ class DomainEventsGenerator(dspy.Module):
                     "trigger_conditions": ev.get("trigger_conditions", []),
                     "consumers": ev.get("consumers", [])
                 })
+                print(f"   ✅ [Events Parser] Item {idx} validated: {ev.get('event_name', 'DomainEvent')}")
             
+            print(f"   ✅ [Events Parser] Successfully validated {len(validated)} events")
             return validated
-        except:
+            
+        except json.JSONDecodeError as e:
+            print(f"   ❌ [Events Parser] JSON decode error: {e}")
+            print(f"   📍 [Events Parser] Error at position {e.pos}")
+            print(f"   📍 [Events Parser] Around: {json_clean[max(0, e.pos-50):e.pos+50]}")
+            return []
+        except Exception as e:
+            print(f"   ❌ [Events Parser] Unexpected error: {type(e).__name__}: {e}")
+            import traceback
+            print(f"   📍 [Events Parser] Traceback: {traceback.format_exc()}")
             return []
 
 
 class NonFunctionalRequirementsGenerator(dspy.Module):
-    """Module for generating NFRs"""
+    """Module for generating non-functional requirements (NFRs)"""
     
     def __init__(self):
         super().__init__()
         self.generate = dspy.ChainOfThought(GenerateNonFunctionalRequirements)
     
-    def forward(self, subdomain: Subdomain) -> list[dict]:
-        """Generate non-functional requirements"""
+    def forward(self, subdomain: Subdomain, progress_callback: Optional[Callable] = None) -> list[dict]:
+        """Generate NFRs based on service type"""
         try:
+            if progress_callback:
+                progress_callback("Preparing NFR generation...")
+            
+            if progress_callback:
+                progress_callback("Calling LLM for NFRs...")
+            
             result = self.generate(
                 service_name=subdomain.name,
                 service_type=subdomain.type.value
             )
             
+            if progress_callback:
+                progress_callback("Parsing NFRs...")
+            
             nfrs = self._parse_nfrs(result.nfr_json)
-            return nfrs if nfrs else self._fallback_nfrs(subdomain.name)
+            
+            if nfrs:
+                if progress_callback:
+                    progress_callback(f"✅ Generated {len(nfrs)} NFRs")
+                return nfrs
+            else:
+                if progress_callback:
+                    progress_callback("⚠️ Using fallback NFRs")
+                return self._fallback_nfrs(subdomain.name)
             
         except Exception as e:
             print(f"⚠️ NFRs generation failed: {e}")
+            if progress_callback:
+                progress_callback(f"⚠️ Using fallback NFRs: {str(e)[:100]}")
             return self._fallback_nfrs(subdomain.name)
     
     def _parse_nfrs(self, json_str: str) -> list[dict]:
-        """Parse NFRs JSON"""
+        """
+        Parse NFRs JSON with detailed error logging
+        
+        FIXES:
+        1. Aggiunge logging dettagliato per debug
+        2. Gestisce meglio i casi edge
+        3. Fornisce informazioni utili quando il parsing fallisce
+        """
+        print(f"   📍 [NFR Parser] Raw input length: {len(json_str)} chars")
+        print(f"   📍 [NFR Parser] First 200 chars: {json_str[:200]}")
+        
         json_clean = extract_json_from_text(json_str)
+        
         if not json_clean:
+            print("   ❌ [NFR Parser] No JSON found in text")
             return []
+        
+        print(f"   📍 [NFR Parser] Cleaned JSON length: {len(json_clean)} chars")
+        print(f"   📍 [NFR Parser] Cleaned JSON preview: {json_clean[:300]}")
         
         try:
             data = json.loads(json_clean)
+            print(f"   ✅ [NFR Parser] JSON parsed successfully, type: {type(data)}")
+            
+            # Se è un dict, prova a vedere se ha una chiave che contiene la lista
+            if isinstance(data, dict):
+                print(f"   📍 [NFR Parser] Got dict with keys: {list(data.keys())}")
+                
+                # Cerca chiavi comuni che potrebbero contenere gli NFR
+                for key in ['nfr', 'nfrs', 'requirements', 'non_functional_requirements', 'items', 'data']:
+                    if key in data and isinstance(data[key], list):
+                        print(f"   ✅ [NFR Parser] Found NFRs in key '{key}'")
+                        data = data[key]
+                        break
+                else:
+                    # Se non troviamo una lista, convertiamo il dict in lista
+                    print(f"   ⚠️ [NFR Parser] Converting dict to list")
+                    data = [data]
+            
             if not isinstance(data, list):
-                data = [data]
+                print(f"   ❌ [NFR Parser] Data is not a list after conversion: {type(data)}")
+                return []
+            
+            print(f"   📍 [NFR Parser] Processing {len(data)} NFR items")
             
             validated = []
-            for nfr in data[:5]:
+            for idx, nfr in enumerate(data[:5]):
                 if not isinstance(nfr, dict):
+                    print(f"   ⚠️ [NFR Parser] Item {idx} is not a dict: {type(nfr)}")
                     continue
                 
-                validated.append({
+                print(f"   📍 [NFR Parser] Item {idx} keys: {list(nfr.keys())}")
+                
+                # Validazione più robusta con default values
+                validated_nfr = {
                     "id": nfr.get("id", f"NFR-{len(validated)+1:03d}"),
                     "type": "non_functional",
                     "priority": nfr.get("priority", "medium"),
@@ -524,10 +772,28 @@ class NonFunctionalRequirementsGenerator(dspy.Module):
                     "description": str(nfr.get("description", ""))[:1000],
                     "acceptance_criteria": nfr.get("acceptance_criteria", []),
                     "related_requirements": []
-                })
+                }
+                
+                # Verifica che abbiamo almeno title e description
+                if not validated_nfr["title"]:
+                    print(f"   ⚠️ [NFR Parser] Item {idx} missing title, skipping")
+                    continue
+                
+                validated.append(validated_nfr)
+                print(f"   ✅ [NFR Parser] Item {idx} validated: {validated_nfr['title']}")
             
+            print(f"   ✅ [NFR Parser] Successfully validated {len(validated)} NFRs")
             return validated
-        except:
+            
+        except json.JSONDecodeError as e:
+            print(f"   ❌ [NFR Parser] JSON decode error: {e}")
+            print(f"   📍 [NFR Parser] Error at position {e.pos}")
+            print(f"   📍 [NFR Parser] Around: {json_clean[max(0, e.pos-50):e.pos+50]}")
+            return []
+        except Exception as e:
+            print(f"   ❌ [NFR Parser] Unexpected error: {type(e).__name__}: {e}")
+            import traceback
+            print(f"   📍 [NFR Parser] Traceback: {traceback.format_exc()}")
             return []
     
     def _fallback_nfrs(self, service_name: str) -> list[dict]:
@@ -561,11 +827,11 @@ class NonFunctionalRequirementsGenerator(dspy.Module):
 
 
 # ============================================================================
-# MAIN PIPELINE - DSPy Modules Orchestration
+# MAIN PIPELINE - DSPy Modules Orchestration with Streaming Support
 # ============================================================================
 
 class SpecificationGeneratorPipeline(dspy.Module):
-    """Complete DSPy pipeline for specification generation"""
+    """Complete DSPy pipeline for specification generation with progress callbacks"""
     
     def __init__(self):
         super().__init__()
@@ -581,80 +847,161 @@ class SpecificationGeneratorPipeline(dspy.Module):
     def forward(
         self,
         subdomain: Subdomain,
-        technical_stack: dict[str, str],
-        global_constraints: dict[str, str],
-        skip_details: bool = False
-    ) -> dict[str, Any]:
-        """Execute complete pipeline for a subdomain"""
-        service_name = subdomain.name
-        print(f"\n{'='*60}")
-        print(f"🔄 Processing: {service_name} (Fast Mode: {skip_details})")
-        print(f"{'='*60}")
+        tech_stack: dict[str, Any],
+        global_constraints: dict[str, Any],
+        skip_details: bool = False,
+        progress_callback: Optional[Callable] = None
+    ) -> dict:
+        """
+        Generate complete specification for a single subdomain
         
-        # 1. Functional Requirements - Sempre generati
-        print(f"📋 [1/4] Generating functional requirements...")
-        functional_reqs = self.req_generator(subdomain)
-        print(f"   ✅ Generated {len(functional_reqs)} requirements")
+        Args:
+            subdomain: The subdomain to generate specs for
+            tech_stack: Technical stack preferences
+            global_constraints: Global project constraints
+            skip_details: If True, skip detailed generation (API, Events, NFRs)
+            progress_callback: Optional callback for progress updates
+        
+        Returns:
+            Complete specification dictionary
+        """
+        def _progress(stage: str, status: str = "info", message: str = ""):
+            """Internal progress helper"""
+            if progress_callback:
+                progress_callback(stage, status, message)
+        
+        _progress("starting", "info", f"Starting generation for {subdomain.name}")
+        
+        # Step 1: Generate functional requirements
+        _progress("requirements", "info", "Starting functional requirements generation")
+        requirements = self.req_generator(subdomain, progress_callback=lambda msg: _progress("requirements", "info", msg))
         
         if skip_details:
-            # Salta le chiamate LLM pesanti per i test
-            print(f"⏩ [SKIP] Skipping detailed generators as requested...")
-            api_endpoints = []
-            events_published = []
-            nfr_reqs = []
-        else:
-            # Esecuzione standard completa
-            print(f"🔌 [2/4] Generating API endpoints...")
-            api_endpoints = self.api_generator(subdomain, functional_reqs)
-            print(f"   ✅ Generated {len(api_endpoints)} endpoints")
-            
-            print(f"📡 [3/4] Generating domain events...")
-            events_published = self.events_generator(subdomain)
-            print(f"   ✅ Generated {len(events_published)} events")
-            
-            print(f"⚡ [4/4] Generating NFRs...")
-            nfr_reqs = self.nfr_generator(subdomain)
-            print(f"   ✅ Generated {len(nfr_reqs)} NFRs")
+            _progress("completed", "success", "Completed (minimal mode)")
+            return self._build_minimal_spec(subdomain, requirements)
         
+        # Step 2: Generate API endpoints
+        _progress("api", "info", "Starting API endpoints generation")
+        api_endpoints = self.api_generator(subdomain, requirements, progress_callback=lambda msg: _progress("api", "info", msg))
+        
+        # Step 3: Generate domain events
+        _progress("events", "info", "Starting domain events generation")
+        events = self.events_generator(subdomain, progress_callback=lambda msg: _progress("events", "info", msg))
+        
+        # Step 4: Generate NFRs
+        _progress("nfr", "info", "Starting NFR generation")
+        nfrs = self.nfr_generator(subdomain, progress_callback=lambda msg: _progress("nfr", "info", msg))
+        
+        # Step 5: Build complete specification
+        _progress("assembling", "info", "Assembling final specification")
+        spec = self._build_complete_spec(
+            subdomain,
+            requirements,
+            api_endpoints,
+            events,
+            nfrs,
+            tech_stack,
+            global_constraints
+        )
+        
+        _progress("completed", "success", f"✅ {subdomain.name} completed successfully")
+        return spec
+    
+    def _build_minimal_spec(self, subdomain: Subdomain, requirements: list[dict]) -> dict:
+        """Build minimal specification (requirements only)"""
         return {
-            "service_name": service_name,
+            "service_name": subdomain.name,
             "version": "1.0.0",
             "description": subdomain.description,
             "bounded_context": subdomain.bounded_context,
-            "functional_requirements": functional_reqs,
-            "non_functional_requirements": nfr_reqs,
-            "events_published": events_published,
+            "functional_requirements": requirements,
+            "non_functional_requirements": [],
+            "events_published": [],
             "events_subscribed": [],
-            "api_endpoints": api_endpoints,
-            "message_queues": [],
-            "dependencies": self._convert_dependencies(subdomain),
-            "technology_stack": technical_stack or DEFAULT_TECH_STACK,
-            "infrastructure_requirements": INFRASTRUCTURE_TEMPLATE,
+            "api_endpoints": [],
+            "dependencies": subdomain.dependencies or [],
+            "technology_stack": {},
+            "infrastructure_requirements": {},
             "monitoring_requirements": MONITORING_REQUIREMENTS,
             "generated_at": datetime.utcnow(),
-            "generated_by": "agent3-spec-generator-dspy"
+            "generated_by": "agent3-minimal"
         }
     
-    def _convert_dependencies(self, subdomain: Subdomain) -> list[dict]:
-        """Convert dependencies from input schema"""
-        return [
-            {
-                "service_name": dep,
-                "dependency_type": "service",
-                "communication_method": "rest",
-                "criticality": "high",
-                "fallback_strategy": "circuit_breaker"
+    def _build_complete_spec(
+        self,
+        subdomain: Subdomain,
+        requirements: list[dict],
+        api_endpoints: list[dict],
+        events: list[dict],
+        nfrs: list[dict],
+        tech_stack: dict[str, Any],
+        global_constraints: dict[str, Any]
+    ) -> dict:
+        """Build complete specification with all components"""
+        return {
+            "service_name": subdomain.name,
+            "version": "1.0.0",
+            "description": subdomain.description,
+            "bounded_context": subdomain.bounded_context,
+            "service_type": subdomain.type.value,
+            "functional_requirements": requirements,
+            "non_functional_requirements": nfrs,
+            "api_endpoints": api_endpoints,
+            "events_published": [e for e in events if e.get("event_type") != "integration"],
+            "events_subscribed": [],
+            "dependencies": subdomain.dependencies or [],
+            "technology_stack": {**DEFAULT_TECH_STACK, **tech_stack},
+            "infrastructure_requirements": INFRASTRUCTURE_TEMPLATE,
+            "monitoring_requirements": MONITORING_REQUIREMENTS,
+            "security_requirements": self._generate_security_requirements(subdomain),
+            "deployment_strategy": self._generate_deployment_strategy(subdomain),
+            "generated_at": datetime.utcnow(),
+            "generated_by": "agent3-dspy-v1"
+        }
+    
+    def _generate_security_requirements(self, subdomain: Subdomain) -> dict:
+        """Generate security requirements based on service type"""
+        base_security = {
+            "authentication": "OAuth2 + JWT",
+            "authorization": "RBAC",
+            "encryption": {
+                "in_transit": "TLS 1.3",
+                "at_rest": "AES-256"
+            },
+            "secrets_management": "HashiCorp Vault"
+        }
+        
+        if subdomain.type.value == "core":
+            base_security["audit_logging"] = "All operations must be logged"
+            base_security["data_protection"] = "PII encryption required"
+        
+        return base_security
+    
+    def _generate_deployment_strategy(self, subdomain: Subdomain) -> dict:
+        """Generate deployment strategy based on service type"""
+        return {
+            "strategy": "blue-green" if subdomain.type.value == "core" else "rolling",
+            "replicas": {
+                "min": 2 if subdomain.type.value == "core" else 1,
+                "max": 10
+            },
+            "health_checks": {
+                "liveness": "/health/live",
+                "readiness": "/health/ready"
+            },
+            "resource_limits": {
+                "cpu": "2 cores",
+                "memory": "4Gi"
             }
-            for dep in (subdomain.dependencies or [])
-        ]
+        }
 
 
 # ============================================================================
-# ORCHESTRATOR - Streaming-Only Entry Point
+# MAIN ORCHESTRATOR - High-Level API with SSE Streaming
 # ============================================================================
 
 class SpecificationOrchestrator:
-    """Orchestrator with SSE streaming support (streaming-only architecture)"""
+    """Main orchestrator for specification generation with SSE streaming support"""
     
     def __init__(self):
         self.pipeline = SpecificationGeneratorPipeline()
@@ -665,8 +1012,10 @@ class SpecificationOrchestrator:
         skip_details: bool = False
     ) -> AsyncGenerator[dict, None]:
         """
-        Generate specifications with SSE streaming.
-        Yields SSE events for each step of the process.
+        Generate specifications with TRUE SSE streaming.
+        
+        KEY FIX: Uses asyncio.to_thread to run synchronous pipeline in thread pool
+        while allowing async yields to send events immediately.
         """
         microservices = []
         total = len(architecture_input.subdomains)
@@ -682,58 +1031,91 @@ class SpecificationOrchestrator:
                     "index": idx,
                     "total": total,
                     "step": "started",
-                    "message": f"Starting generation for {subdomain_name}"
+                    "message": f"🚀 Starting generation for {subdomain_name}",
+                    "timestamp": datetime.utcnow().isoformat()
                 })
             }
             
+            # ✅ CRITICAL: Ensure event is sent before blocking operation
+            await asyncio.sleep(0.01)  # Force event loop to process yield
+            
             try:
-                # Event: requirements generation
-                yield {
-                    "event": "progress",
-                    "data": json.dumps({
-                        "subdomain": subdomain_name,
-                        "step": "requirements",
-                        "message": "Generating functional requirements..."
-                    })
-                }
+                # Create a queue for progress updates
+                progress_queue = asyncio.Queue()
                 
-                # Event: api generation
-                yield {
-                    "event": "progress",
-                    "data": json.dumps({
-                        "subdomain": subdomain_name,
-                        "step": "api",
-                        "message": "Generating API endpoints..."
-                    })
-                }
+                # Define progress callback that puts messages in queue
+                def progress_callback(stage: str, status: str, message: str):
+                    """Non-blocking callback that queues progress messages"""
+                    try:
+                        # Use put_nowait since we're in sync context
+                        progress_queue.put_nowait({
+                            "subdomain": subdomain_name,
+                            "stage": stage,
+                            "status": status,
+                            "message": message,
+                            "timestamp": datetime.utcnow().isoformat()
+                        })
+                    except:
+                        pass  # Queue full, skip this update
                 
-                # Event: events generation
-                yield {
-                    "event": "progress",
-                    "data": json.dumps({
-                        "subdomain": subdomain_name,
-                        "step": "events",
-                        "message": "Generating domain events..."
-                    })
-                }
-                
-                # Event: nfr generation
-                yield {
-                    "event": "progress",
-                    "data": json.dumps({
-                        "subdomain": subdomain_name,
-                        "step": "nfr",
-                        "message": "Generating non-functional requirements..."
-                    })
-                }
-                
-                # Execute pipeline
-                spec = self.pipeline(
-                    subdomain=subdomain,
-                    technical_stack=architecture_input.technical_stack or {},
-                    global_constraints=architecture_input.global_constraints or {},
-                    skip_details=skip_details
+                # ✅ KEY FIX: Run synchronous pipeline in thread pool
+                # This allows the async generator to continue yielding events
+                pipeline_task = asyncio.create_task(
+                    asyncio.to_thread(
+                        self.pipeline,
+                        subdomain,
+                        architecture_input.technical_stack or {},
+                        architecture_input.global_constraints or {},
+                        skip_details,
+                        progress_callback
+                    )
                 )
+                
+                # Process progress updates while pipeline runs
+                spec = None
+                while not pipeline_task.done():
+                    try:
+                        # Wait for progress update with timeout
+                        progress_data = await asyncio.wait_for(
+                            progress_queue.get(), 
+                            timeout=0.1
+                        )
+                        
+                        # Yield progress event immediately
+                        yield {
+                            "event": "progress",
+                            "data": json.dumps({
+                                "subdomain": subdomain_name,
+                                "step": progress_data["stage"],
+                                "status": progress_data["status"],
+                                "message": progress_data["message"],
+                                "timestamp": progress_data["timestamp"]
+                            })
+                        }
+                        
+                    except asyncio.TimeoutError:
+                        # No update available, continue waiting
+                        await asyncio.sleep(0.1)
+                
+                # Get final result
+                spec = await pipeline_task
+                
+                # Process any remaining progress messages
+                while not progress_queue.empty():
+                    try:
+                        progress_data = progress_queue.get_nowait()
+                        yield {
+                            "event": "progress",
+                            "data": json.dumps({
+                                "subdomain": subdomain_name,
+                                "step": progress_data["stage"],
+                                "status": progress_data["status"],
+                                "message": progress_data["message"],
+                                "timestamp": progress_data["timestamp"]
+                            })
+                        }
+                    except:
+                        break
                 
                 microservices.append(spec)
                 
@@ -750,21 +1132,30 @@ class SpecificationOrchestrator:
                         "subdomain": subdomain_name,
                         "step": "completed",
                         "message": f"✅ {subdomain_name} completed successfully",
-                        "progress_percent": int((idx / total) * 100)
+                        "progress_percent": int((idx / total) * 100),
+                        "timestamp": datetime.utcnow().isoformat()
                     })
                 }
                 
+                # ✅ Force event processing
+                await asyncio.sleep(0.01)
+                
             except Exception as e:
+                print(f"❌ Error processing {subdomain_name}: {e}")
+                
                 # Event: error
                 yield {
                     "event": "progress",
                     "data": json.dumps({
                         "subdomain": subdomain_name,
                         "step": "error",
-                        "message": f"Error: {str(e)}",
-                        "using_fallback": True
+                        "message": f"❌ Error: {str(e)}",
+                        "using_fallback": True,
+                        "timestamp": datetime.utcnow().isoformat()
                     })
                 }
+                
+                await asyncio.sleep(0.01)
                 
                 # Use fallback
                 minimal_spec = self._generate_minimal_spec(subdomain)

@@ -45,7 +45,6 @@ from app.modules.generator_module import SpecificationOrchestrator
 AIRCUT_PORTFOLIO_KEYWORDS = {
     "photo_upload_management": {
         "portfolio",
-
         "photo",
         "foto",
         "image",
@@ -396,10 +395,7 @@ async def test_aircut_portfolio_functional_requirements_validation(
         print(f"  ⚠️  {problematic_count} requisiti con problemi minori (entro tolleranza)")
     
     # -------------------------------------------------------------------------
-    # FASE 4: VALIDAZIONE SEMANTICA - COPERTURA DOMINIO PORTFOLIO
-    # -------------------------------------------------------------------------
-# -------------------------------------------------------------------------
-    # [FASE 4] VALIDAZIONE SEMANTICA - COPERTURA DOMINIO AIRCUT
+    # FASE 4: VALIDAZIONE SEMANTICA - COPERTURA DOMINIO AIRCUT
     # -------------------------------------------------------------------------
     print(f"\n[FASE 4] Validazione Semantica - Copertura Dominio Aircut")
     print("-" * 80)
@@ -556,6 +552,88 @@ async def test_aircut_portfolio_functional_requirements_validation(
     else:
         print("  ⭐ SUFFICIENTE - Requisiti base presenti, possibile miglioramento")
     
+    # -------------------------------------------------------------------------
+    # FASE 8: GENERAZIONE REPORT HTML AUTOMATICO
+    # -------------------------------------------------------------------------
+    print(f"\n[FASE 8] Generazione Report HTML")
+    print("-" * 80)
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="it">
+    <head>
+        <meta charset="UTF-8">
+        <title>Test Report: Aircut Portfolio Service</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 20px; line-height: 1.6; color: #333; }}
+            h1 {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }}
+            h2 {{ color: #2980b9; margin-top: 30px; }}
+            .summary-box {{ background-color: #f8f9fa; padding: 20px; border-radius: 5px; border-left: 5px solid #2ecc71; margin-bottom: 20px; }}
+            .metric {{ margin-bottom: 10px; font-weight: bold; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+            th, td {{ padding: 12px; border: 1px solid #ddd; text-align: left; }}
+            th {{ background-color: #34495e; color: white; }}
+            tr:nth-child(even) {{ background-color: #f2f2f2; }}
+            .priority-critical {{ color: #e74c3c; font-weight: bold; }}
+            .priority-high {{ color: #e67e22; font-weight: bold; }}
+            .priority-medium {{ color: #f1c40f; font-weight: bold; }}
+            .priority-low {{ color: #27ae60; font-weight: bold; }}
+            .badge {{ display: inline-block; padding: 3px 8px; border-radius: 12px; color: white; font-size: 0.8em; }}
+            .bg-critical {{ background-color: #e74c3c; }}
+            .bg-high {{ background-color: #e67e22; }}
+            .bg-medium {{ background-color: #f1c40f; }}
+            .bg-low {{ background-color: #27ae60; }}
+        </style>
+    </head>
+    <body>
+        <h1>Test Report: Aircut Portfolio Functional Specs</h1>
+        <p>Generato automaticamente dal test di integrazione.</p>
+        
+        <div class="summary-box">
+            <h2>📊 Metriche di Qualità</h2>
+            <div class="metric">Requisiti Totali: {total_functional}</div>
+            <div class="metric">Copertura Semantica: {global_coverage:.1%}</div>
+            <div class="metric">Aree Funzionali Coperte: {areas_covered}/{len(AIRCUT_PORTFOLIO_KEYWORDS)}</div>
+            <div class="metric">Requisiti Critici: {priority_distribution[RequirementPriority.CRITICAL]}</div>
+        </div>
+
+        <h2>📋 Lista Requisiti Generati</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Priorità</th>
+                    <th>Titolo</th>
+                    <th>Descrizione</th>
+                </tr>
+            </thead>
+            <tbody>
+    """
+
+    for req in all_functional_requirements:
+        p_class = f"priority-{req.priority.value.lower()}"
+        bg_class = f"bg-{req.priority.value.lower()}"
+        html_content += f"""
+                <tr>
+                    <td>{req.id}</td>
+                    <td><span class="badge {bg_class}">{req.priority.value.upper()}</span></td>
+                    <td>{req.title}</td>
+                    <td>{req.description}</td>
+                </tr>
+        """
+
+    html_content += """
+            </tbody>
+        </table>
+    </body>
+    </html>
+    """
+
+    report_path = "test_functional_specs_report.html"
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
+    
+    print(f" Report HTML salvato in: {os.path.abspath(report_path)}")
     print(f"{'=' * 80}\n")
 
 
