@@ -582,29 +582,39 @@ class SpecificationGeneratorPipeline(dspy.Module):
         self,
         subdomain: Subdomain,
         technical_stack: dict[str, str],
-        global_constraints: dict[str, str]
+        global_constraints: dict[str, str],
+        skip_details: bool = False
     ) -> dict[str, Any]:
         """Execute complete pipeline for a subdomain"""
         service_name = subdomain.name
         print(f"\n{'='*60}")
-        print(f"🔄 Processing: {service_name}")
+        print(f"🔄 Processing: {service_name} (Fast Mode: {skip_details})")
         print(f"{'='*60}")
         
+        # 1. Functional Requirements - Sempre generati
         print(f"📋 [1/4] Generating functional requirements...")
         functional_reqs = self.req_generator(subdomain)
         print(f"   ✅ Generated {len(functional_reqs)} requirements")
         
-        print(f"🔌 [2/4] Generating API endpoints...")
-        api_endpoints = self.api_generator(subdomain, functional_reqs)
-        print(f"   ✅ Generated {len(api_endpoints)} endpoints")
-        
-        print(f"📡 [3/4] Generating domain events...")
-        events_published = self.events_generator(subdomain)
-        print(f"   ✅ Generated {len(events_published)} events")
-        
-        print(f"⚡ [4/4] Generating NFRs...")
-        nfr_reqs = self.nfr_generator(subdomain)
-        print(f"   ✅ Generated {len(nfr_reqs)} NFRs")
+        if skip_details:
+            # Salta le chiamate LLM pesanti per i test
+            print(f"⏩ [SKIP] Skipping detailed generators as requested...")
+            api_endpoints = []
+            events_published = []
+            nfr_reqs = []
+        else:
+            # Esecuzione standard completa
+            print(f"🔌 [2/4] Generating API endpoints...")
+            api_endpoints = self.api_generator(subdomain, functional_reqs)
+            print(f"   ✅ Generated {len(api_endpoints)} endpoints")
+            
+            print(f"📡 [3/4] Generating domain events...")
+            events_published = self.events_generator(subdomain)
+            print(f"   ✅ Generated {len(events_published)} events")
+            
+            print(f"⚡ [4/4] Generating NFRs...")
+            nfr_reqs = self.nfr_generator(subdomain)
+            print(f"   ✅ Generated {len(nfr_reqs)} NFRs")
         
         return {
             "service_name": service_name,
@@ -651,7 +661,8 @@ class SpecificationOrchestrator:
     
     async def generate_all_specs_streaming(
         self, 
-        architecture_input: ArchitectureInput
+        architecture_input: ArchitectureInput,
+        skip_details: bool = False
     ) -> AsyncGenerator[dict, None]:
         """
         Generate specifications with SSE streaming.
@@ -720,7 +731,8 @@ class SpecificationOrchestrator:
                 spec = self.pipeline(
                     subdomain=subdomain,
                     technical_stack=architecture_input.technical_stack or {},
-                    global_constraints=architecture_input.global_constraints or {}
+                    global_constraints=architecture_input.global_constraints or {},
+                    skip_details=skip_details
                 )
                 
                 microservices.append(spec)
