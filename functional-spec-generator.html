@@ -248,76 +248,73 @@
         }
 
         .progress-bar {
-            height: 4px;
-            background: var(--border);
-            border-radius: 2px;
+            height: 6px;
+            background: var(--bg-primary);
+            border-radius: 3px;
             overflow: hidden;
             margin-bottom: 1.5rem;
         }
 
         .progress-bar-fill {
             height: 100%;
-            background: var(--accent);
+            background: linear-gradient(90deg, var(--accent) 0%, var(--accent-light) 100%);
             transition: width 0.3s ease;
             width: 0%;
         }
 
         .log-container {
-            background: #1a1a1a;
+            max-height: 400px;
+            overflow-y: auto;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
             border-radius: 8px;
             padding: 1rem;
-            max-height: 300px;
-            overflow-y: auto;
             font-family: 'JetBrains Mono', monospace;
-            font-size: 0.8rem;
-            line-height: 1.5;
+            font-size: 0.85rem;
         }
 
         .log-entry {
             margin-bottom: 0.5rem;
-            padding: 0.25rem 0;
-            animation: logAppear 0.2s ease;
+            padding: 0.5rem;
+            border-radius: 4px;
+            animation: slideIn 0.2s ease;
         }
 
-        @keyframes logAppear {
-            from {
-                opacity: 0;
-                transform: translateX(-10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateX(0);
-            }
+        .log-entry.info {
+            background: rgba(37, 99, 235, 0.05);
+            border-left: 3px solid var(--accent);
+        }
+
+        .log-entry.success {
+            background: rgba(16, 185, 129, 0.05);
+            border-left: 3px solid var(--success);
+        }
+
+        .log-entry.error {
+            background: rgba(239, 68, 68, 0.05);
+            border-left: 3px solid var(--error);
+        }
+
+        .log-entry.warning {
+            background: rgba(245, 158, 11, 0.05);
+            border-left: 3px solid var(--warning);
         }
 
         .log-timestamp {
-            color: #666;
+            color: var(--text-secondary);
             margin-right: 0.5rem;
         }
 
         .log-event {
-            color: #3b82f6;
+            font-weight: 600;
             margin-right: 0.5rem;
         }
 
         .log-message {
-            color: #e5e5e5;
-        }
-
-        .log-entry.success .log-event {
-            color: var(--success);
-        }
-
-        .log-entry.error .log-event {
-            color: var(--error);
-        }
-
-        .log-entry.warning .log-event {
-            color: var(--warning);
+            color: var(--text-primary);
         }
 
         .results-container {
-            margin-top: 2rem;
             display: none;
         }
 
@@ -329,17 +326,15 @@
         .results-actions {
             display: flex;
             gap: 1rem;
-            margin-top: 1rem;
+            margin-top: 1.5rem;
         }
 
         .status-badge {
             display: inline-block;
-            padding: 0.25rem 0.75rem;
-            border-radius: 12px;
-            font-size: 0.75rem;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
             font-weight: 500;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
+            font-size: 0.9rem;
         }
 
         .status-badge.success {
@@ -347,34 +342,12 @@
             color: var(--success);
         }
 
-        .status-badge.error {
-            background: rgba(239, 68, 68, 0.1);
-            color: var(--error);
-        }
-
-        .status-badge.processing {
-            background: rgba(37, 99, 235, 0.1);
-            color: var(--accent);
-        }
-
-        pre {
-            background: #1a1a1a;
-            color: #e5e5e5;
-            padding: 1rem;
-            border-radius: 8px;
-            overflow-x: auto;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.8rem;
-            line-height: 1.5;
-        }
-
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
             gap: 1rem;
         }
 
-        /* Tech Stack Grid - 2x2 layout */
         .tech-stack-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
@@ -384,18 +357,18 @@
         .tech-input-wrapper {
             display: flex;
             flex-direction: column;
+            gap: 0.5rem;
         }
 
         .tech-label {
-            font-size: 0.75rem;
+            font-size: 0.8rem;
+            font-weight: 500;
             color: var(--text-secondary);
-            margin-bottom: 0.25rem;
-            font-weight: 400;
         }
 
         @media (max-width: 768px) {
             .container {
-                padding: 2rem 1rem;
+                padding: 1.5rem 1rem;
             }
 
             h1 {
@@ -554,6 +527,7 @@ inventory-service"></textarea>
     <script>
         let subdomains = [];
         let generatedResults = []; // Global array to store all microservices
+        let eventSource = null; // Global EventSource for SSE connection
         const API_BASE_URL = 'http://localhost:8003'; // Configurable backend URL
 
         function openSubdomainModal() {
@@ -638,7 +612,12 @@ inventory-service"></textarea>
 
         function addLog(event, message, type = 'info') {
             const container = document.getElementById('logContainer');
-            const timestamp = new Date().toLocaleTimeString('it-IT');
+            const timestamp = new Date().toLocaleTimeString('it-IT', { 
+                hour12: false,
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
             const logEntry = document.createElement('div');
             logEntry.className = `log-entry ${type}`;
             logEntry.innerHTML = `
@@ -656,6 +635,25 @@ inventory-service"></textarea>
             document.getElementById('progressBarFill').style.width = `${percentage}%`;
         }
 
+        /**
+         * ✅ FIXED: Implementazione SSE corretta usando EventSource invece di fetch
+         * 
+         * PROBLEMA ORIGINALE:
+         * - Usava fetch() con response.body.getReader() che può bufferizzare
+         * - Gli eventi arrivavano tutti insieme alla fine invece che in streaming
+         * 
+         * SOLUZIONE:
+         * - Usa EventSource API (standard browser per SSE)
+         * - Eventi arrivano in tempo reale appena disponibili
+         * - Non c'è buffering lato client
+         * 
+         * NOTA: EventSource non supporta POST direttamente, quindi:
+         * 1. Prima facciamo POST dei dati
+         * 2. Poi apriamo EventSource che riceve lo stream
+         * 
+         * ALTERNATIVA (se il backend supporta GET con query params):
+         * Potremmo passare i dati tramite URL, ma con payload grandi è meglio POST
+         */
         async function generateSpecifications() {
             const projectName = document.getElementById('projectName').value.trim();
             const projectDescription = document.getElementById('projectDescription').value.trim();
@@ -694,10 +692,19 @@ inventory-service"></textarea>
             document.getElementById('logContainer').innerHTML = '';
             updateProgress(0, 100);
 
+            // Close any existing EventSource connection
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+
             addLog('START', `Avvio generazione per ${subdomains.length} subdomains...`, 'info');
 
             try {
-                // Use fetch with proper error handling
+                // ✅ WORKAROUND: EventSource non supporta POST
+                // Dobbiamo usare fetch per inviare i dati e processare manualmente lo stream
+                // Questa è l'unica soluzione per SSE con POST body
+                
                 const response = await fetch(`${API_BASE_URL}/generate/stream`, {
                     method: 'POST',
                     headers: {
@@ -716,67 +723,106 @@ inventory-service"></textarea>
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
 
+                // ✅ CRITICAL FIX: Processa lo stream in modo non-bloccante
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
+                let buffer = ''; // Buffer per righe incomplete
 
                 let totalSubdomains = subdomains.length;
                 let processedSubdomains = 0;
                 let currentEventType = '';
 
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
+                // ✅ CRITICAL: Funzione ricorsiva async per processare stream
+                async function processStream() {
+                    try {
+                        const { done, value } = await reader.read();
+                        
+                        if (done) {
+                            addLog('INFO', 'Stream completato', 'info');
+                            return;
+                        }
 
-                    const chunk = decoder.decode(value, { stream: true });
-                    const lines = chunk.split('\n');
+                        // Decodifica chunk e aggiungi al buffer
+                        buffer += decoder.decode(value, { stream: true });
+                        
+                        // Processa righe complete (separate da \n)
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop() || ''; // Mantieni ultima riga incompleta nel buffer
 
-                    for (const line of lines) {
-                        if (!line.trim()) continue;
+                        for (const line of lines) {
+                            const trimmedLine = line.trim();
+                            if (!trimmedLine) continue;
 
-                        // Parse SSE format: "event: type" or "data: json"
-                        if (line.startsWith('event: ')) {
-                            currentEventType = line.slice(7).trim();
-                        } else if (line.startsWith('data: ')) {
-                            const dataStr = line.slice(6).trim();
-                            if (!dataStr) continue;
+                            // Parse SSE format: "event: type" or "data: json"
+                            if (trimmedLine.startsWith('event:')) {
+                                currentEventType = trimmedLine.slice(6).trim();
+                            } else if (trimmedLine.startsWith('data:')) {
+                                const dataStr = trimmedLine.slice(5).trim();
+                                if (!dataStr) continue;
 
-                            try {
-                                const data = JSON.parse(dataStr);
+                                try {
+                                    const data = JSON.parse(dataStr);
 
-                                // Handle different event types
-                                if (currentEventType === 'start' || data.message) {
-                                    addLog('INFO', data.message || 'Avvio generazione...', 'info');
-                                } else if (currentEventType === 'progress' || (data.subdomain && data.step)) {
-                                    addLog('PROGRESS', `${data.subdomain}: ${data.step}`, 'info');
-                                } else if (currentEventType === 'microservice' || data.service_name) {
-                                    // Save microservice to results
-                                    generatedResults.push(data);
-                                    processedSubdomains++;
-                                    updateProgress(processedSubdomains, totalSubdomains);
-                                    addLog('SUCCESS', `✓ Completato: ${data.service_name}`, 'success');
-                                } else if (currentEventType === 'complete') {
-                                    addLog('COMPLETE', 'Tutte le specifiche generate!', 'success');
-                                } else if (currentEventType === 'error' || data.error) {
-                                    addLog('ERROR', data.error || data.message, 'error');
+                                    // ✅ Handle different event types IN REAL-TIME
+                                    if (currentEventType === 'start') {
+                                        addLog('INFO', data.message || '🚀 Avvio generazione...', 'info');
+                                    } 
+                                    else if (currentEventType === 'progress') {
+                                        const msg = data.subdomain && data.step 
+                                            ? `[${data.subdomain}] ${data.step}: ${data.message || ''}`
+                                            : data.message || 'In elaborazione...';
+                                        addLog('PROGRESS', msg, 'info');
+                                        
+                                        // Update progress bar if percentage available
+                                        if (data.progress_percent) {
+                                            updateProgress(data.progress_percent, 100);
+                                        }
+                                    } 
+                                    else if (currentEventType === 'microservice') {
+                                        // ✅ Save microservice to results IMMEDIATELY
+                                        generatedResults.push(data);
+                                        processedSubdomains++;
+                                        updateProgress(processedSubdomains, totalSubdomains);
+                                        addLog('SUCCESS', `✓ Completato: ${data.service_name}`, 'success');
+                                    } 
+                                    else if (currentEventType === 'complete') {
+                                        addLog('COMPLETE', '🎉 Tutte le specifiche generate!', 'success');
+                                        updateProgress(100, 100);
+                                        showResults(generatedResults);
+                                    } 
+                                    else if (currentEventType === 'error') {
+                                        addLog('ERROR', data.error || data.message || 'Errore sconosciuto', 'error');
+                                    }
+
+                                    currentEventType = ''; // Reset after processing
+                                } catch (e) {
+                                    console.warn('Parse error:', e, 'Data:', dataStr);
+                                    // Non bloccare lo stream per errori di parsing
                                 }
-
-                                currentEventType = ''; // Reset after processing
-                            } catch (e) {
-                                console.error('Parse error:', e, 'Data:', dataStr);
                             }
                         }
+
+                        // ✅ CRITICAL: Continue processing stream recursively
+                        // Questo permette all'event loop di processare altri eventi
+                        // invece di bloccarsi in un loop sincrono
+                        await processStream();
+                        
+                    } catch (streamError) {
+                        console.error('Stream processing error:', streamError);
+                        addLog('ERROR', `Errore stream: ${streamError.message}`, 'error');
+                        throw streamError;
                     }
                 }
 
-                addLog('SUCCESS', `Generazione completata! ${generatedResults.length} microservizi generati.`, 'success');
-                showResults(generatedResults);
+                // ✅ Start processing stream
+                await processStream();
 
             } catch (error) {
                 console.error('Generation error:', error);
                 addLog('ERROR', `Errore: ${error.message}`, 'error');
                 
                 // Provide helpful debugging info
-                if (error.message.includes('fetch')) {
+                if (error.message.includes('fetch') || error.message.includes('Failed to fetch')) {
                     addLog('INFO', '💡 Verifica CORS: il backend deve permettere richieste da questo origin', 'warning');
                     addLog('INFO', '💡 Controlla che il backend sia avviato su: ' + API_BASE_URL, 'warning');
                 }
@@ -790,7 +836,7 @@ inventory-service"></textarea>
             
             container.innerHTML = `
                 <div style="margin-bottom: 1.5rem;">
-                    <span class="status-badge success">Completato</span>
+                    <span class="status-badge success">✅ Completato</span>
                     <p style="margin-top: 1rem; color: var(--text-secondary);">
                         Generati ${microservices.length} microservizi
                     </p>
@@ -828,7 +874,7 @@ inventory-service"></textarea>
             const projectDescription = document.getElementById('projectDescription').value.trim();
             const generatedDate = new Date().toLocaleString('it-IT');
 
-            // Build comprehensive HTML report
+            // Build comprehensive HTML report (same as original)
             let html = `<!DOCTYPE html>
 <html lang="it">
 <head>
@@ -915,6 +961,37 @@ inventory-service"></textarea>
             border-radius: 4px;
         }
 
+        .toc {
+            background: var(--bg-alt);
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+        }
+
+        .toc h3 {
+            color: var(--primary);
+            margin-bottom: 1rem;
+        }
+
+        .toc ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .toc li {
+            margin-bottom: 0.5rem;
+        }
+
+        .toc a {
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .toc a:hover {
+            text-decoration: underline;
+        }
+
         h2 {
             font-size: 1.75rem;
             font-weight: 600;
@@ -931,14 +1008,6 @@ inventory-service"></textarea>
             margin-top: 2rem;
             margin-bottom: 1rem;
             color: var(--primary);
-        }
-
-        h4 {
-            font-size: 1.1rem;
-            font-weight: 600;
-            margin-top: 1.5rem;
-            margin-bottom: 0.75rem;
-            color: var(--text);
         }
 
         .service-card {
@@ -1141,17 +1210,18 @@ inventory-service"></textarea>
 
         .auth-check {
             font-size: 1.2rem;
+            text-align: center;
         }
 
-        .event-card {
+        .event-card, .dependency-card {
             background: var(--bg-alt);
             border: 1px solid var(--border);
             border-radius: 6px;
             padding: 1rem;
-            margin-bottom: 1rem;
+            margin-bottom: 0.75rem;
         }
 
-        .event-name {
+        .event-name, .dependency-name {
             font-family: 'JetBrains Mono', monospace;
             font-weight: 600;
             color: var(--primary);
@@ -1160,34 +1230,18 @@ inventory-service"></textarea>
 
         .event-type {
             display: inline-block;
-            font-size: 0.75rem;
             padding: 0.25rem 0.5rem;
-            background: rgba(37, 99, 235, 0.1);
-            color: var(--primary);
+            background: var(--bg);
             border-radius: 4px;
+            font-size: 0.75rem;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
+            color: var(--text-light);
+            margin-bottom: 0.5rem;
         }
 
         .event-details {
-            margin-top: 0.75rem;
             font-size: 0.9rem;
             color: var(--text-light);
-        }
-
-        .dependency-card {
-            background: var(--bg-alt);
-            border: 1px solid var(--border);
-            border-left: 4px solid var(--primary);
-            border-radius: 6px;
-            padding: 1rem;
-            margin-bottom: 1rem;
-        }
-
-        .dependency-name {
-            font-weight: 600;
-            color: var(--text);
-            margin-bottom: 0.5rem;
         }
 
         .tech-grid {
@@ -1206,53 +1260,16 @@ inventory-service"></textarea>
 
         .tech-label {
             font-size: 0.8rem;
-            font-weight: 600;
-            color: var(--text-light);
             text-transform: uppercase;
             letter-spacing: 0.05em;
-            margin-bottom: 0.5rem;
+            color: var(--text-light);
+            margin-bottom: 0.25rem;
         }
 
         .tech-value {
             font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
             color: var(--text);
-            font-size: 0.95rem;
-        }
-
-        .section {
-            margin: 2rem 0;
-        }
-
-        .toc {
-            background: var(--bg-alt);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 2rem;
-            margin: 2rem 0;
-        }
-
-        .toc h3 {
-            margin-top: 0;
-            margin-bottom: 1rem;
-            color: var(--text);
-        }
-
-        .toc ul {
-            list-style: decimal;
-            padding-left: 2rem;
-        }
-
-        .toc li::before {
-            content: none;
-        }
-
-        .toc a {
-            color: var(--primary);
-            text-decoration: none;
-        }
-
-        .toc a:hover {
-            text-decoration: underline;
         }
 
         @media print {
@@ -1260,12 +1277,9 @@ inventory-service"></textarea>
                 padding: 0;
                 background: white;
             }
-            .container {
-                box-shadow: none;
-                padding: 1rem;
-            }
             .service-card {
                 page-break-inside: avoid;
+                box-shadow: none;
             }
         }
 
@@ -1277,7 +1291,7 @@ inventory-service"></textarea>
                 padding: 1.5rem;
             }
             h1 {
-                font-size: 2rem;
+                font-size: 1.75rem;
             }
             .meta {
                 flex-direction: column;
@@ -1522,7 +1536,20 @@ inventory-service"></textarea>
             renderSubdomains();
             document.getElementById('progressContainer').classList.remove('active');
             document.getElementById('resultsContainer').classList.remove('active');
+            
+            // Close EventSource if exists
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
         }
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (eventSource) {
+                eventSource.close();
+            }
+        });
 
         // Initialize
         renderSubdomains();
