@@ -54,23 +54,37 @@ class ArchitectureInput(BaseModel):
     global_constraints: Optional[dict[str, str]] = Field(default_factory=dict)
     technical_stack: Optional[dict[str, str]] = Field(default_factory=dict)
 
-    class Config:
+class Config:
         json_schema_extra = {
             "example": {
-                "project_name": "ecommerce-platform",
-                "project_description": "Modern e-commerce system with microservices",
+                "project_name": "aircut-media-platform",
+                "project_description": "Visual discovery engine for Aircut allowing barbers to showcase work.",
                 "subdomains": [
                     {
-                        "name": "order-management",
+                        "name": "portfolio-service",
                         "type": "core",
-                        "description": "Handles order lifecycle",
-                        "bounded_context": "Sales",
-                        "responsibilities": ["Order creation", "Order tracking"],
-                        "dependencies": ["payment-service"],
-                        "communication_patterns": ["async_event", "sync_rest"],
+                        "description": "Central hub for barber galleries, style tagging, and visual content management.",
+                        "bounded_context": "PortfolioContext",
+                        "responsibilities": [
+                            "Upload and optimize haircut images",
+                            "Manage style categorization (Fade, Beard, Scissor Cut)",
+                            "Handle 'Before & After' comparison sets",
+                            "Index styles for visual discovery feed"
+                        ],
+                        "dependencies": ["identity-service", "analytics-service"],
+                        "communication_patterns": ["sync_rest", "async_event"]
                     }
                 ],
-                "global_constraints": {"max_response_time": "200ms", "availability": "99.9%"},
-                "technical_stack": {"language": "Python", "framework": "FastAPI"},
+                "global_constraints": {
+                    "max_response_time": "200ms",
+                    "content_moderation": "automated_check",
+                    "availability": "99.9%"
+                },
+                "technical_stack": {
+                    "language": "Python",
+                    "framework": "FastAPI",
+                    "database": "MongoDB",  
+                    "storage": "AWS S3"
+                }
             }
         }
