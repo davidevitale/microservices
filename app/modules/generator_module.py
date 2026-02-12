@@ -225,7 +225,7 @@ class GenerateDomainEvents(dspy.Signature):
 [
   {
     "event_name": "EntityCreatedEvent",
-    "event_type": "domain|integration|notification",
+    "event_type": "integration",
     "payload_schema": {"entity_id": "string", "timestamp": "string"},
     "trigger_conditions": ["condizione 1", "condizione 2"],
     "consumers": ["service-name"]
