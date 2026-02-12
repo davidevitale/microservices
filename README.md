@@ -1,7 +1,6 @@
 ================================================================================
 DOCUMENTAZIONE TECNICA: AGENT 3 - FUNCTIONAL SPECIFICATION GENERATOR
 ================================================================================
-Progetto: Nobel Engineering - AI Driven Software Architecture
 Modulo: Agent 3 (Generatore di Specifiche Funzionali)
 Versione: 1.0.0
 Data: Gennaio 2026
